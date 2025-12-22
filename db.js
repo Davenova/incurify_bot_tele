@@ -11,31 +11,65 @@ export async function connectDB() {
   return db;
 }
 
-export async function saveUser(userData) {
+export async function saveUserBasic(user) {
   const database = await connectDB();
-  const users = database.collection("users");
-
-  await users.updateOne(
-    { telegramId: userData.telegramId },
-    { $setOnInsert: userData },
+  await database.collection("users").updateOne(
+    { telegramId: user.telegramId },
+    { $setOnInsert: user },
     { upsert: true }
   );
 }
 
-export async function toggleFeature(name) {
+export async function updateUser(telegramId, data) {
   const database = await connectDB();
-  const features = database.collection("features");
-
-  const feature = await features.findOne({ name });
-
-  if (!feature) {
-    await features.insertOne({ name, enabled: false });
-    return false;
-  }
-
-  const newState = !feature.enabled;
-  await features.updateOne({ name }, { $set: { enabled: newState } });
-
-  return newState;
+  await database.collection("users").updateOne(
+    { telegramId },
+    { $set: data }
+  );
 }
 
+export async function getUser(query) {
+  const database = await connectDB();
+  return database.collection("users").findOne({
+    $or: [
+      { telegramId: Number(query) },
+      { username: query },
+      { xHandle: query }
+    ]
+  });
+}
+
+export async function getAllUsers() {
+  const database = await connectDB();
+  return database.collection("users").find({}).toArray();
+}
+
+export async function deleteUser(query) {
+  const database = await connectDB();
+  return database.collection("users").deleteOne({
+    $or: [
+      { telegramId: Number(query) },
+      { username: query }
+    ]
+  });
+}
+
+/* USER STATE */
+export async function setState(telegramId, state) {
+  const database = await connectDB();
+  await database.collection("states").updateOne(
+    { telegramId },
+    { $set: state },
+    { upsert: true }
+  );
+}
+
+export async function getState(telegramId) {
+  const database = await connectDB();
+  return database.collection("states").findOne({ telegramId });
+}
+
+export async function clearState(telegramId) {
+  const database = await connectDB();
+  await database.collection("states").deleteOne({ telegramId });
+}
