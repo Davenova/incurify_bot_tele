@@ -1,159 +1,243 @@
+import { sendMessage, editMessage, answerCallback } from "./functions.js";
 import {
-  sendMessage,
-  editMessage,
+  saveBasicUser,
+  saveXHandle,
+  saveWallet,
+  getUserByTelegramId,
+  getUserByAny,
+  getAllUsersPaginated,
+  updateUserByAny,
+  deleteUserByAny
+} from "./db.js";
+import {
   isAdmin,
-  validateWallet
+  validateEVM,
+  validateSOL
 } from "./functions.js";
 
-import {
-  upsertUser,
-  updateUserById,
-  getUserByAny,
-  deleteUserByAny,
-  getAllUsers,
-  setState,
-  getState,
-  clearState
-} from "./db.js";
+/**
+ * In-memory state store (safe for short-lived flows)
+ * key = telegram user id
+ */
+const userStates = new Map();
 
-/* MAIN ENTRY */
-export async function handleUpdate(update) {
-  if (update.message) {
-    await handleMessage(update.message);
-  } else if (update.callback_query) {
-    await handleCallback(update.callback_query);
-  }
-}
+/* =========================
+   MAIN COMMAND HANDLER
+========================= */
+export async function handleCommand(message) {
+  const chatId = message.chat.id;
+  const text = message.text?.trim();
+  const from = message.from;
 
-/* MESSAGES */
-async function handleMessage(msg) {
-  const text = msg.text;
-  const id = msg.from.id;
+  if (!text) return;
 
-  const state = await getState(id);
+  /* ---------- /start ---------- */
+  if (text === "/start") {
+    await saveBasicUser(from);
 
-  if (state?.step === "xhandle") {
-    await updateUserById(id, { xHandle: text.replace("@", "") });
-    await setState(id, { step: "wallet_chain" });
+    return sendMessage(chatId,
+      `👋 *Welcome!*
 
-    return sendMessage(id, "Select wallet chain:", {
-      reply_markup: {
+Available commands:
+• /recordinfo — Save your X & wallet info
+• /getinfo — View your saved details
+• /updateinfo — Update your info
+• /help — Help & FAQs
+
+Choose an option below 👇`,
+      {
         inline_keyboard: [
-          [{ text: "EVM", callback_data: "chain_EVM" }],
-          [{ text: "SOL", callback_data: "chain_SOL" }],
-          [{ text: "BNB", callback_data: "chain_BNB" }],
-          [{ text: "Skip", callback_data: "skip_wallet" }]
+          [{ text: "👤 User Info", callback_data: "getinfo" }],
+          [{ text: "❓ Help", callback_data: "help" }],
+          [{ text: "📘 FAQs", callback_data: "faqs" }]
         ]
       }
-    });
+    );
   }
 
-  if (state?.step === "wallet_address") {
-    if (!validateWallet(state.chain, text)) {
-      return sendMessage(id, "❌ Invalid address. Try again.");
+  /* ---------- /help ---------- */
+  if (text === "/help") {
+    return sendMessage(chatId,
+      `ℹ️ *Help*
+
+• /recordinfo — save X & wallet
+• /getinfo — view your info
+• /updateinfo — update details
+
+Admins have additional commands.`,
+      { parse_mode: "Markdown" }
+    );
+  }
+
+  /* ---------- /recordinfo ---------- */
+  if (text === "/recordinfo") {
+    userStates.set(from.id, { step: "WAIT_X" });
+
+    return sendMessage(chatId,
+      "✏️ Send your *X (Twitter) username* (without @):",
+      { parse_mode: "Markdown" }
+    );
+  }
+
+  /* ---------- /getinfo ---------- */
+  if (text === "/getinfo") {
+    const user = await getUserByTelegramId(from.id);
+
+    if (!user || !user.xHandle) {
+      return sendMessage(chatId, "❌ No info found. Use /recordinfo first.");
     }
 
-    await updateUserById(id, {
-      walletChain: state.chain,
-      walletAddress: text
-    });
+    let msg = `👤 *Your Info*\n\n`;
+    msg += `X: @${user.xHandle}\n`;
 
-    await clearState(id);
-    return sendMessage(id, "✅ Wallet saved.");
+    if (user.wallet) {
+      msg += `Chain: ${user.wallet.chain}\n`;
+      msg += `Address: \`${user.wallet.address}\``;
+    } else {
+      msg += `Wallet: Not provided`;
+    }
+
+    return sendMessage(chatId, msg, { parse_mode: "Markdown" });
   }
 
-  if (text === "/start") {
-    await upsertUser({
-      telegramId: id,
-      username: msg.from.username || null,
-      firstName: msg.from.first_name || "",
-      lastName: msg.from.last_name || "",
-      registeredAt: new Date()
+  /* ---------- ADMIN COMMANDS ---------- */
+  if (text.startsWith("/cast")) {
+    if (!isAdmin(from.id)) {
+      return sendMessage(chatId, "❌ Admin only.");
+    }
+
+    const content = text.replace("/cast", "").trim();
+    if (!content) {
+      return sendMessage(chatId, "Usage: /cast <message>");
+    }
+
+    const users = await getAllUsersPaginated(1, 10000);
+
+    for (const u of users.data) {
+      await sendMessage(u.telegramId, content, { parse_mode: "Markdown" });
+    }
+
+    return sendMessage(chatId, `✅ Broadcast sent to ${users.data.length} users.`);
+  }
+
+  if (text.startsWith("/getuser")) {
+    if (!isAdmin(from.id)) return sendMessage(chatId, "❌ Admin only.");
+
+    const query = text.split(" ")[1];
+    if (!query) return sendMessage(chatId, "Usage: /getuser <@username|id>");
+
+    const user = await getUserByAny(query);
+    if (!user) return sendMessage(chatId, "User not found.");
+
+    return sendMessage(chatId,
+      `👤 *User Info*
+Telegram: ${user.firstName} ${user.lastName || ""}
+Username: @${user.username || "N/A"}
+ID: ${user.telegramId}
+Joined: ${user.createdAt}
+
+X: ${user.xHandle || "N/A"}
+Wallet: ${user.wallet?.address || "N/A"}`,
+      { parse_mode: "Markdown" }
+    );
+  }
+
+  if (text.startsWith("/deleteuser")) {
+    if (!isAdmin(from.id)) return sendMessage(chatId, "❌ Admin only.");
+
+    const query = text.split(" ")[1];
+    if (!query) return sendMessage(chatId, "Usage: /deleteuser <@username|id>");
+
+    await deleteUserByAny(query);
+    return sendMessage(chatId, "🗑 User deleted.");
+  }
+
+  if (text.startsWith("/infoall")) {
+    if (!isAdmin(from.id)) return sendMessage(chatId, "❌ Admin only.");
+
+    const page = Number(text.split(" ")[1]) || 1;
+    const result = await getAllUsersPaginated(page, 5);
+
+    let msg = `📊 *All Users* (Page ${page})\n\n`;
+    result.data.forEach((u, i) => {
+      msg += `${i + 1}. ${u.firstName} (@${u.username || "N/A"})\n`;
     });
 
-    return sendMessage(id,
-      "**Welcome!**\n\n" +
-      "/recordinfo – save your info\n" +
-      "/getinfo – view your info\n" +
-      "/updateinfo – update info\n" +
-      "/help – help menu",
+    const buttons = [];
+    if (result.hasPrev) buttons.push({ text: "⬅️ Prev", callback_data: `infoall:${page - 1}` });
+    if (result.hasNext) buttons.push({ text: "➡️ Next", callback_data: `infoall:${page + 1}` });
+
+    return sendMessage(chatId, msg, {
+      parse_mode: "Markdown",
+      inline_keyboard: [buttons]
+    });
+  }
+
+  /* ---------- STATE HANDLER ---------- */
+  const state = userStates.get(from.id);
+  if (!state) return;
+
+  if (state.step === "WAIT_X") {
+    await saveXHandle(from.id, text);
+
+    userStates.set(from.id, { step: "WAIT_CHAIN" });
+
+    return sendMessage(chatId,
+      "Select wallet chain:",
       {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: "User Info", callback_data: "getinfo" }],
-            [{ text: "Help", callback_data: "help" }],
-            [{ text: "FAQs", callback_data: "faqs" }]
-          ]
-        }
+        inline_keyboard: [
+          [{ text: "EVM / ERC20", callback_data: "chain:EVM" }],
+          [{ text: "SOL", callback_data: "chain:SOL" }],
+          [{ text: "BNB", callback_data: "chain:BNB" }],
+          [{ text: "Skip", callback_data: "chain:SKIP" }]
+        ]
       }
     );
   }
-
-  if (text === "/recordinfo") {
-    await setState(id, { step: "xhandle" });
-    return sendMessage(id, "Send your X (Twitter) username:");
-  }
-
-  if (text === "/getinfo") {
-    const u = await getUserByAny(id);
-    if (!u) return sendMessage(id, "No data found.");
-
-    return sendMessage(id,
-      `**Your Info**\nX: ${u.xHandle || "-"}\nChain: ${u.walletChain || "-"}\nWallet: ${u.walletAddress || "-"}`
-    );
-  }
-
-  if (text === "/help") {
-    return sendMessage(id,
-      "/recordinfo – save info\n/getinfo – view info\n/updateinfo – update info"
-    );
-  }
-
-  /* ADMIN */
-  if (text.startsWith("/cast")) {
-    if (!isAdmin(id)) return;
-    const msgText = text.replace("/cast", "").trim();
-    const { users } = await getAllUsers(1, 1000);
-    for (const u of users) {
-      await sendMessage(u.telegramId, msgText);
-    }
-  }
 }
 
-/* CALLBACKS */
-async function handleCallback(q) {
-  const id = q.from.id;
-  const data = q.data;
+/* =========================
+   CALLBACK HANDLER
+========================= */
+export async function handleCallback(query) {
+  const chatId = query.message.chat.id;
+  const userId = query.from.id;
+  const data = query.data;
 
-  if (data.startsWith("chain_")) {
-    const chain = data.split("_")[1];
-    await setState(id, { step: "wallet_address", chain });
-    return editMessage(id, q.message.message_id,
-      `Send your ${chain} wallet address:`
-    );
-  }
-
-  if (data === "skip_wallet") {
-    await clearState(id);
-    return editMessage(id, q.message.message_id, "Skipped wallet setup.");
-  }
+  await answerCallback(query.id);
 
   if (data === "getinfo") {
-    const u = await getUserByAny(id);
-    return editMessage(id, q.message.message_id,
-      `X: ${u?.xHandle || "-"}\nWallet: ${u?.walletAddress || "-"}`
-    );
+    return handleCommand({ text: "/getinfo", chat: { id: chatId }, from: query.from });
   }
 
   if (data === "help") {
-    return editMessage(id, q.message.message_id,
-      "/recordinfo\n/getinfo\n/updateinfo"
+    return handleCommand({ text: "/help", chat: { id: chatId }, from: query.from });
+  }
+
+  if (data.startsWith("chain:")) {
+    const chain = data.split(":")[1];
+
+    if (chain === "SKIP") {
+      userStates.delete(userId);
+      return editMessage(chatId, query.message.message_id, "✅ Info saved (wallet skipped).");
+    }
+
+    userStates.set(userId, { step: "WAIT_WALLET", chain });
+
+    return editMessage(
+      chatId,
+      query.message.message_id,
+      `Send your *${chain} wallet address*:`,
+      { parse_mode: "Markdown" }
     );
   }
 
-  if (data === "faqs") {
-    return editMessage(id, q.message.message_id,
-      "No FAQs yet."
-    );
+  if (data.startsWith("infoall:")) {
+    const page = Number(data.split(":")[1]);
+    return handleCommand({
+      text: `/infoall ${page}`,
+      chat: { id: chatId },
+      from: query.from
+    });
   }
 }
