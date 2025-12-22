@@ -1,4 +1,4 @@
-import { MongoClient } from "mongodb";
+import { MongoClient, ObjectId } from "mongodb";
 
 const client = new MongoClient(process.env.MONGO_URI);
 let db;
@@ -12,32 +12,73 @@ async function getDB() {
 }
 
 /* USERS */
-
-export async function saveBasicUser(user) {
-  const database = await getDB();
-  return database.collection("users").updateOne(
-    { telegramId: user.telegramId },
-    { $setOnInsert: user },
+export async function upsertUser(base) {
+  const d = await getDB();
+  await d.collection("users").updateOne(
+    { telegramId: base.telegramId },
+    { $setOnInsert: base },
     { upsert: true }
   );
 }
 
-export async function updateUserData(query, data) {
-  const database = await getDB();
-  return database.collection("users").updateOne(query, { $set: data });
+export async function updateUserById(telegramId, data) {
+  const d = await getDB();
+  await d.collection("users").updateOne(
+    { telegramId },
+    { $set: data }
+  );
 }
 
-export async function getUser(query) {
-  const database = await getDB();
-  return database.collection("users").findOne(query);
+export async function getUserByAny(id) {
+  const d = await getDB();
+  return d.collection("users").findOne({
+    $or: [
+      { telegramId: Number(id) },
+      { username: id.replace("@", "") },
+      { xHandle: id.replace("@", "") }
+    ]
+  });
 }
 
-export async function getAllUsers() {
-  const database = await getDB();
-  return database.collection("users").find({}).toArray();
+export async function deleteUserByAny(id) {
+  const d = await getDB();
+  return d.collection("users").deleteOne({
+    $or: [
+      { telegramId: Number(id) },
+      { username: id.replace("@", "") }
+    ]
+  });
 }
 
-export async function deleteUser(query) {
-  const database = await getDB();
-  return database.collection("users").deleteOne(query);
+export async function getAllUsers(page = 1, limit = 5) {
+  const d = await getDB();
+  const skip = (page - 1) * limit;
+  const users = await d.collection("users")
+    .find({})
+    .skip(skip)
+    .limit(limit)
+    .toArray();
+
+  const total = await d.collection("users").countDocuments();
+  return { users, total };
+}
+
+/* STATE (for step flows) */
+export async function setState(telegramId, state) {
+  const d = await getDB();
+  await d.collection("states").updateOne(
+    { telegramId },
+    { $set: state },
+    { upsert: true }
+  );
+}
+
+export async function getState(telegramId) {
+  const d = await getDB();
+  return d.collection("states").findOne({ telegramId });
+}
+
+export async function clearState(telegramId) {
+  const d = await getDB();
+  await d.collection("states").deleteOne({ telegramId });
 }
