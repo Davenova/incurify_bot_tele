@@ -1,45 +1,30 @@
-import { handleCommand } from "../commands.js";
-import { sendMessage } from "../functions.js";
+import { handleCommand, handleCallback } from "../commands.js";
 
+/**
+ * Telegram webhook entry for Vercel
+ * URL: https://your-project.vercel.app/api/main
+ */
 export default async function handler(req, res) {
-  const update = req.body;
+  try {
+    if (req.method !== "POST") {
+      return res.status(200).send("OK");
+    }
 
-  if (update.message) {
-    await handleCommand(update.message);
+    const update = req.body;
+
+    // Message (commands, text input)
+    if (update.message) {
+      await handleCommand(update.message);
+    }
+
+    // Inline button callbacks
+    if (update.callback_query) {
+      await handleCallback(update.callback_query);
+    }
+
+    return res.status(200).send("OK");
+  } catch (err) {
+    console.error("Webhook error:", err);
+    return res.status(200).send("OK"); // ALWAYS 200 for Telegram
   }
-
-  if (update.callback_query) {
-    const chatId = update.callback_query.message.chat.id;
-    const data = update.callback_query.data;
-
-    if (data === "USER_INFO") {
-      await sendMessage(chatId, "Use /getinfo to view your data.");
-    }
-
-    if (data === "HELP") {
-      await sendMessage(chatId, "Use /help to see commands.");
-    }
-
-    if (data === "FAQ") {
-      await sendMessage(chatId, "FAQs coming soon.");
-    }
-
-    if (data.startsWith("CHAIN_")) {
-      const chain = data.replace("CHAIN_", "");
-      userStates.set(update.callback_query.from.id, {
-        ...userStates.get(update.callback_query.from.id),
-        step: "WALLET",
-        chain
-      });
-
-      await sendMessage(chatId, `Send your ${chain} wallet address:`);
-    }
-
-    if (data === "SKIP_WALLET") {
-      userStates.delete(update.callback_query.from.id);
-      await sendMessage(chatId, "Skipped wallet entry.");
-    }
-  }
-
-  res.status(200).send("OK");
 }
