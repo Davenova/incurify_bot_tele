@@ -1,167 +1,120 @@
+import { sendMessage, isAdmin, isValidWallet } from "./functions.js";
 import {
-  sendMessage,
-  sendInline,
-  isAdmin,
-  validateWallet
-} from "./functions.js";
-
-import {
-  saveUser,
+  saveUserBase,
   updateUser,
-  getUserByAny,
-  deleteUser,
-  getAllUsers
+  getUser,
+  getAllUsers,
+  deleteUser
 } from "./db.js";
 
-const userStates = new Map(); // in-memory step tracking
-
+/* MAIN HANDLER */
 export async function handleCommand(message) {
   const chatId = message.chat.id;
   const text = message.text;
   const from = message.from;
 
-  /* ---------- START ---------- */
+  /* /start */
   if (text === "/start") {
-    await saveUser({
+    await saveUserBase({
       telegramId: from.id,
       username: from.username || null,
-      firstName: from.first_name || null,
-      lastName: from.last_name || null,
+      firstName: from.first_name || "",
+      lastName: from.last_name || "",
       registeredAt: new Date()
     });
 
-    return sendInline(
+    return sendMessage(
       chatId,
-      `<b>Welcome ${from.first_name} 👋</b>\n\nChoose an option below:`,
+      `👋 <b>Welcome to Growthy.io Engage-to-Earn Bot!</b>
+
+🚀 <b>Available Commands</b>
+/recordinfo — save your X handle & wallet  
+/getinfo — view your saved details  
+/updateinfo — update your info  
+/help — how this bot works  
+
+Tip: Pin this message for quick access.`,
       [
         [{ text: "👤 User Info", callback_data: "USER_INFO" }],
-        [{ text: "❓ Help", callback_data: "HELP" }],
-        [{ text: "📘 FAQs", callback_data: "FAQ" }]
+        [{ text: "ℹ️ Help", callback_data: "HELP" }],
+        [{ text: "❓ FAQ", callback_data: "FAQ" }]
       ]
     );
   }
 
-  /* ---------- HELP ---------- */
+  /* USER COMMANDS */
   if (text === "/help") {
-    return sendMessage(
-      chatId,
-      `/recordinfo — save your info
-/getinfo — view saved info
-/updateinfo — update your data`
+    return sendMessage(chatId,
+      `/recordinfo — save X handle & wallet
+/getinfo — view your data
+/updateinfo — update your info`
     );
   }
 
-  /* ---------- RECORD INFO ---------- */
-  if (text === "/recordinfo") {
-    userStates.set(from.id, { step: "X_HANDLE" });
-    return sendMessage(chatId, "Send your X (Twitter) username (example: @elonmusk)");
-  }
-
-  /* ---------- USER INPUT FLOW ---------- */
-  if (userStates.has(from.id)) {
-    const state = userStates.get(from.id);
-
-    if (state.step === "X_HANDLE") {
-      state.xHandle = text;
-      state.step = "CHAIN";
-      userStates.set(from.id, state);
-
-      return sendInline(
-        chatId,
-        "Choose wallet chain:",
-        [
-          [{ text: "EVM", callback_data: "CHAIN_EVM" }],
-          [{ text: "ERC20", callback_data: "CHAIN_ERC20" }],
-          [{ text: "SOL", callback_data: "CHAIN_SOL" }],
-          [{ text: "BNB", callback_data: "CHAIN_BNB" }],
-          [{ text: "⏭ Skip", callback_data: "SKIP_WALLET" }]
-        ]
-      );
-    }
-
-    if (state.step === "WALLET") {
-      if (!validateWallet(state.chain, text)) {
-        return sendMessage(chatId, "❌ Invalid wallet. Please send a valid address.");
-      }
-
-      await updateUser(from.id, {
-        xHandle: state.xHandle,
-        wallet: { chain: state.chain, address: text }
-      });
-
-      userStates.delete(from.id);
-      return sendMessage(chatId, "✅ Info saved successfully.");
-    }
-  }
-
-  /* ---------- GET INFO ---------- */
   if (text === "/getinfo") {
-    const user = await getUserByAny(from.id);
+    const user = await getUser({ telegramId: from.id });
     if (!user) return sendMessage(chatId, "No data found.");
 
-    return sendMessage(
-      chatId,
-      `<b>Your Info</b>
+    return sendMessage(chatId,
+      `👤 <b>Your Info</b>
 X: ${user.xHandle || "N/A"}
-Wallet: ${user.wallet?.chain || "N/A"} — ${user.wallet?.address || "N/A"}`
+Chain: ${user.chain || "N/A"}
+Wallet: ${user.wallet || "N/A"}`
     );
   }
 
-  /* ---------- ADMIN ONLY ---------- */
-  if (!isAdmin(from.id)) return;
+  /* ADMIN COMMANDS */
+  if (text.startsWith("/infoall")) {
+    if (!isAdmin(from.id)) return;
 
-  if (text === "/listcmds") {
-    return sendMessage(
-      chatId,
-      `<b>Admin Commands</b>
-/cast
-/getuser
-/modifyuser
-/deleteuser
-/infoall`
-    );
-  }
-
-  if (text.startsWith("/cast ")) {
-    const msg = text.replace("/cast ", "");
     const users = await getAllUsers();
+    let msg = "<b>All Users</b>\n\n";
 
-    for (const u of users) {
-      await sendMessage(u.telegramId, msg);
-    }
-
-    return sendMessage(chatId, "📣 Broadcast sent.");
-  }
-
-  if (text.startsWith("/getuser ")) {
-    const id = text.split(" ")[1];
-    const user = await getUserByAny(id);
-    if (!user) return sendMessage(chatId, "User not found.");
-
-    return sendMessage(
-      chatId,
-      JSON.stringify(user, null, 2)
-    );
-  }
-
-  if (text.startsWith("/deleteuser ")) {
-    const id = text.split(" ")[1];
-    const deleted = await deleteUser(id);
-    if (!deleted) return sendMessage(chatId, "User not found.");
-
-    return sendMessage(chatId, "🗑 User deleted.");
-  }
-
-  if (text === "/infoall") {
-    const users = await getAllUsers();
-    let output = "<b>All Users</b>\n\n";
-
-    users.forEach(u => {
-      output += `👤 ${u.username || u.telegramId}
+    users.forEach((u, i) => {
+      msg += `${i + 1}. ${u.username || "N/A"} | ${u.telegramId}
 X: ${u.xHandle || "N/A"}
-Wallet: ${u.wallet?.chain || "N/A"}\n\n`;
+Wallet: ${u.wallet || "N/A"} (${u.chain || "-"})
+
+`;
     });
 
-    return sendMessage(chatId, output);
+    return sendMessage(chatId, msg);
+  }
+
+  if (text.startsWith("/getuser")) {
+    if (!isAdmin(from.id)) return;
+
+    const q = text.split(" ")[1];
+    const user = await getUser(
+      q.startsWith("@")
+        ? { username: q.replace("@", "") }
+        : { telegramId: Number(q) }
+    );
+
+    if (!user) return sendMessage(chatId, "User not found.");
+
+    return sendMessage(chatId,
+      `<b>User Data</b>
+ID: ${user.telegramId}
+Username: ${user.username}
+Name: ${user.firstName} ${user.lastName}
+X: ${user.xHandle || "N/A"}
+Wallet: ${user.wallet || "N/A"}
+Chain: ${user.chain || "N/A"}
+Registered: ${user.registeredAt}`
+    );
+  }
+
+  if (text.startsWith("/deleteuser")) {
+    if (!isAdmin(from.id)) return;
+
+    const q = text.split(" ")[1];
+    await deleteUser(
+      q.startsWith("@")
+        ? { username: q.replace("@", "") }
+        : { telegramId: Number(q) }
+    );
+
+    return sendMessage(chatId, "✅ User deleted.");
   }
 }
