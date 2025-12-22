@@ -1,6 +1,8 @@
-import { MongoClient, ObjectId } from "mongodb";
+import { MongoClient } from "mongodb";
 
-const client = new MongoClient(process.env.MONGO_URI);
+const uri = process.env.MONGO_URI;
+const client = new MongoClient(uri);
+
 let db;
 
 async function getDB() {
@@ -11,74 +13,66 @@ async function getDB() {
   return db;
 }
 
-/* USERS */
-export async function upsertUser(base) {
-  const d = await getDB();
-  await d.collection("users").updateOne(
-    { telegramId: base.telegramId },
-    { $setOnInsert: base },
+/* ================= USERS ================= */
+
+export async function upsertUser(telegramId, data) {
+  const database = await getDB();
+  return database.collection("users").updateOne(
+    { telegramId },
+    { $set: data },
     { upsert: true }
   );
 }
 
-export async function updateUserById(telegramId, data) {
-  const d = await getDB();
-  await d.collection("users").updateOne(
-    { telegramId },
-    { $set: data }
-  );
+export async function getUserByTelegramId(telegramId) {
+  const database = await getDB();
+  return database.collection("users").findOne({ telegramId });
 }
 
-export async function getUserByAny(id) {
-  const d = await getDB();
-  return d.collection("users").findOne({
-    $or: [
-      { telegramId: Number(id) },
-      { username: id.replace("@", "") },
-      { xHandle: id.replace("@", "") }
-    ]
+export async function getUserByUsername(username) {
+  const database = await getDB();
+  return database.collection("users").findOne({
+    telegramUsername: username.replace("@", "")
   });
 }
 
-export async function deleteUserByAny(id) {
-  const d = await getDB();
-  return d.collection("users").deleteOne({
-    $or: [
-      { telegramId: Number(id) },
-      { username: id.replace("@", "") }
-    ]
-  });
+export async function deleteUserByTelegramId(telegramId) {
+  const database = await getDB();
+  return database.collection("users").deleteOne({ telegramId });
 }
 
-export async function getAllUsers(page = 1, limit = 5) {
-  const d = await getDB();
+export async function getAllUsers(page = 1, limit = 10) {
+  const database = await getDB();
   const skip = (page - 1) * limit;
-  const users = await d.collection("users")
+
+  const users = await database
+    .collection("users")
     .find({})
     .skip(skip)
     .limit(limit)
     .toArray();
 
-  const total = await d.collection("users").countDocuments();
+  const total = await database.collection("users").countDocuments();
   return { users, total };
 }
 
-/* STATE (for step flows) */
+/* ================= STATES ================= */
+
 export async function setState(telegramId, state) {
-  const d = await getDB();
-  await d.collection("states").updateOne(
+  const database = await getDB();
+  return database.collection("states").updateOne(
     { telegramId },
-    { $set: state },
+    { $set: { telegramId, ...state } },
     { upsert: true }
   );
 }
 
 export async function getState(telegramId) {
-  const d = await getDB();
-  return d.collection("states").findOne({ telegramId });
+  const database = await getDB();
+  return database.collection("states").findOne({ telegramId });
 }
 
 export async function clearState(telegramId) {
-  const d = await getDB();
-  await d.collection("states").deleteOne({ telegramId });
+  const database = await getDB();
+  return database.collection("states").deleteOne({ telegramId });
 }
