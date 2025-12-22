@@ -3,7 +3,7 @@ import { MongoClient } from "mongodb";
 const client = new MongoClient(process.env.MONGO_URI);
 let db;
 
-export async function connectDB() {
+async function getDB() {
   if (!db) {
     await client.connect();
     db = client.db("telegramBot");
@@ -11,98 +11,40 @@ export async function connectDB() {
   return db;
 }
 
-export async function saveUserBasic(user) {
-  const database = await connectDB();
-  await database.collection("users").updateOne(
+export async function saveBasicUser(user) {
+  const database = await getDB();
+  const users = database.collection("users");
+
+  await users.updateOne(
     { telegramId: user.telegramId },
     { $setOnInsert: user },
     { upsert: true }
   );
 }
 
-export async function updateUser(telegramId, data) {
-  const database = await connectDB();
-  await database.collection("users").updateOne(
-    { telegramId },
-    { $set: data }
-  );
-}
+export async function findUserByIdOrUsername(query) {
+  const database = await getDB();
+  const users = database.collection("users");
 
-export async function getUser(query) {
-  const database = await connectDB();
-  return database.collection("users").findOne({
+  return users.findOne({
     $or: [
-      { telegramId: Number(query) },
-      { username: query },
-      { xHandle: query }
+      { telegramId: Number(query) || -1 },
+      { username: query.replace("@", "") }
     ]
   });
 }
 
 export async function getAllUsers() {
-  const database = await connectDB();
+  const database = await getDB();
   return database.collection("users").find({}).toArray();
 }
 
 export async function deleteUser(query) {
-  const database = await connectDB();
+  const database = await getDB();
   return database.collection("users").deleteOne({
     $or: [
-      { telegramId: Number(query) },
-      { username: query }
-    ]
-  });
-}
-
-/* USER STATE */
-export async function setState(telegramId, state) {
-  const database = await connectDB();
-  await database.collection("states").updateOne(
-    { telegramId },
-    { $set: state },
-    { upsert: true }
-  );
-}
-
-export async function getState(telegramId) {
-  const database = await connectDB();
-  return database.collection("states").findOne({ telegramId });
-}
-
-export async function clearState(telegramId) {
-  const database = await connectDB();
-  await database.collection("states").deleteOne({ telegramId });
-}
-
-export async function updateUser(telegramId, data) {
-  const db = await connectDB();
-  return db.collection("users").updateOne(
-    { telegramId },
-    { $set: data }
-  );
-}
-
-export async function getUserByAny(identifier) {
-  const db = await connectDB();
-  return db.collection("users").findOne({
-    $or: [
-      { telegramId: Number(identifier) },
-      { username: identifier.replace("@", "") }
-    ]
-  });
-}
-
-export async function getAllUsers() {
-  const db = await connectDB();
-  return db.collection("users").find().toArray();
-}
-
-export async function deleteUser(identifier) {
-  const db = await connectDB();
-  return db.collection("users").deleteOne({
-    $or: [
-      { telegramId: Number(identifier) },
-      { username: identifier.replace("@", "") }
+      { telegramId: Number(query) || -1 },
+      { username: query.replace("@", "") }
     ]
   });
 }
