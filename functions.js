@@ -2,28 +2,27 @@ import axios from "axios";
 
 const API = `https://api.telegram.org/bot${process.env.BOT_TOKEN}`;
 
-export async function sendMessage(chatId, text, options = {}) {
-  return axios.post(`${API}/sendMessage`, {
+export async function sendMessage(chatId, text, buttons = null) {
+  const payload = {
     chat_id: chatId,
     text,
-    parse_mode: "HTML",
-    ...options
-  });
-}
+    parse_mode: "HTML"
+  };
 
-export async function sendInline(chatId, text, buttons) {
-  return sendMessage(chatId, text, {
-    reply_markup: {
+  if (buttons) {
+    payload.reply_markup = {
       inline_keyboard: buttons
-    }
-  });
+    };
+  }
+
+  return axios.post(`${API}/sendMessage`, payload);
 }
 
 export function isAdmin(userId) {
   return process.env.ADMIN_IDS.split(",").includes(String(userId));
 }
 
-export function validateWallet(chain, address) {
+export function isValidWallet(address, chain) {
   if (chain === "EVM" || chain === "ERC20" || chain === "BNB") {
     return /^0x[a-fA-F0-9]{40}$/.test(address);
   }
