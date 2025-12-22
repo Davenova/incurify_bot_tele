@@ -11,27 +11,25 @@ async function getDB() {
   return db;
 }
 
+/* USERS */
+
 export async function saveBasicUser(user) {
   const database = await getDB();
-  const users = database.collection("users");
-
-  await users.updateOne(
+  return database.collection("users").updateOne(
     { telegramId: user.telegramId },
     { $setOnInsert: user },
     { upsert: true }
   );
 }
 
-export async function findUserByIdOrUsername(query) {
+export async function updateUserData(query, data) {
   const database = await getDB();
-  const users = database.collection("users");
+  return database.collection("users").updateOne(query, { $set: data });
+}
 
-  return users.findOne({
-    $or: [
-      { telegramId: Number(query) || -1 },
-      { username: query.replace("@", "") }
-    ]
-  });
+export async function getUser(query) {
+  const database = await getDB();
+  return database.collection("users").findOne(query);
 }
 
 export async function getAllUsers() {
@@ -41,10 +39,5 @@ export async function getAllUsers() {
 
 export async function deleteUser(query) {
   const database = await getDB();
-  return database.collection("users").deleteOne({
-    $or: [
-      { telegramId: Number(query) || -1 },
-      { username: query.replace("@", "") }
-    ]
-  });
+  return database.collection("users").deleteOne(query);
 }
