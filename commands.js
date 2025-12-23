@@ -2,6 +2,7 @@ import {
   sendMessage,
   isAdmin,
   validateWallet,
+  validateXProfile,
   editMessage
 } from "./functions.js";
 
@@ -13,7 +14,15 @@ import {
   deleteUser,
   setState,
   getState,
-  clearState
+  clearState,
+  getSettings,
+  updateSettings,
+  createTicket,
+  getTicket,
+  getAllTickets,
+  updateTicket,
+  getOpenTickets,
+  getTicketsByUser
 } from "./db.js";
 
 export async function handleCommand(message) {
@@ -39,19 +48,14 @@ export async function handleCommand(message) {
       chatId,
       `👋 <b>Welcome ${from.first_name}!</b>
 
-I'm here to help you manage your information securely.
-
-<b>Available Commands:</b>
-• /recordinfo — Save your information
-• /getinfo — View your saved information
-• /updateinfo — Update your information
-• /help — Show all commands`,
+Fill out the form to join our group.`,
       {
         reply_markup: {
           inline_keyboard: [
-            [{ text: "📝 Record Info", callback_data: "cmd_recordinfo" }],
-            [{ text: "👤 View My Info", callback_data: "cmd_getinfo" }],
-            [{ text: "ℹ️ Help", callback_data: "cmd_help" }]
+            [{ text: "📝 Form", callback_data: "cmd_recordinfo" }],
+            [{ text: "👤 Get Info", callback_data: "cmd_getinfo" }],
+            [{ text: "✏️ Update Info", callback_data: "cmd_updateinfo" }],
+            [{ text: "🎫 Ticket System", callback_data: "ticket_menu" }]
           ]
         }
       }
@@ -63,7 +67,7 @@ I'm here to help you manage your information securely.
     await setState(from.id, { step: "ASK_X" });
     return sendMessage(
       chatId,
-      "📱 Please send your <b>X (Twitter) username</b> (without @):",
+      "📱 Please send your <b>X (Twitter) profile link</b>\n\nExample: https://x.com/username or https://twitter.com/username",
       {
         reply_markup: {
           inline_keyboard: [
@@ -78,7 +82,7 @@ I'm here to help you manage your information securely.
   if (text === "/updateinfo") {
     const user = await getUser(from.id);
     if (!user) {
-      return sendMessage(chatId, "❌ No data found. Please use /recordinfo first.");
+      return sendMessage(chatId, "❌ No data found. Please use the Form first.");
     }
 
     return sendMessage(
@@ -86,7 +90,8 @@ I'm here to help you manage your information securely.
       `<b>Update Your Information</b>
 
 Current Data:
-• X Handle: ${user.xHandle || "—"}
+• X Profile: ${user.xHandle || "—"}
+• Discord: ${user.discord || "—"}
 • Chain: ${user.chain || "—"}
 • Wallet: ${user.wallet || "—"}
 
@@ -94,7 +99,8 @@ What would you like to update?`,
       {
         reply_markup: {
           inline_keyboard: [
-            [{ text: "📱 Update X Handle", callback_data: "update_x" }],
+            [{ text: "📱 Update X Profile", callback_data: "update_x" }],
+            [{ text: "💬 Update Discord", callback_data: "update_discord" }],
             [{ text: "🔗 Update Chain & Wallet", callback_data: "update_wallet" }],
             [{ text: "🔄 Update All", callback_data: "cmd_recordinfo" }],
             [{ text: "❌ Cancel", callback_data: "cancel" }]
@@ -108,7 +114,7 @@ What would you like to update?`,
   if (text === "/getinfo") {
     const user = await getUser(from.id);
     if (!user) {
-      return sendMessage(chatId, "❌ No data found. Please use /recordinfo to save your information first.");
+      return sendMessage(chatId, "❌ No data found. Please fill out the Form first.");
     }
 
     return sendMessage(
@@ -117,7 +123,8 @@ What would you like to update?`,
 
 👤 <b>Name:</b> ${user.firstName} ${user.lastName || ""}
 🆔 <b>Username:</b> @${user.username || "—"}
-📱 <b>X Handle:</b> ${user.xHandle ? "@" + user.xHandle : "—"}
+📱 <b>X Profile:</b> ${user.xHandle || "—"}
+💬 <b>Discord:</b> ${user.discord || "—"}
 🔗 <b>Chain:</b> ${user.chain || "—"}
 💼 <b>Wallet:</b> ${user.wallet ? `<code>${user.wallet}</code>` : "—"}
 📅 <b>Registered:</b> ${new Date(user.registeredAt).toLocaleString()}`,
@@ -139,15 +146,12 @@ What would you like to update?`,
       `<b>📚 Available Commands</b>
 
 /start — Register and start
-/recordinfo — Save your information
+/recordinfo — Fill out the form
 /getinfo — View your information
 /updateinfo — Update your information
-/help — Show this help message
-
-<b>How to use:</b>
-1️⃣ Use /recordinfo to save your X handle and wallet
-2️⃣ Use /getinfo to view your saved data
-3️⃣ Use /updateinfo to modify your information`,
+/ticket — Create a support ticket
+/mytickets — View your tickets
+/help — Show this help message`,
       {
         reply_markup: {
           inline_keyboard: [
@@ -156,6 +160,63 @@ What would you like to update?`,
         }
       }
     );
+  }
+
+  /* TICKET COMMANDS */
+  if (text === "/ticket") {
+    await setState(from.id, { step: "TICKET_CREATE" });
+    return sendMessage(
+      chatId,
+      `<b>🎫 Create Support Ticket</b>
+
+Please describe your issue or question in detail. Our team will respond as soon as possible.`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "❌ Cancel", callback_data: "cancel" }]
+          ]
+        }
+      }
+    );
+  }
+
+  if (text === "/mytickets") {
+    const tickets = await getTicketsByUser(from.id);
+    
+    if (tickets.length === 0) {
+      return sendMessage(
+        chatId,
+        "📭 You don't have any tickets yet.",
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "🎫 Create Ticket", callback_data: "ticket_create" }],
+              [{ text: "🏠 Main Menu", callback_data: "cmd_start" }]
+            ]
+          }
+        }
+      );
+    }
+
+    let message = `<b>🎫 Your Support Tickets</b>\n\n`;
+    
+    tickets.forEach((t, i) => {
+      const statusEmoji = t.status === "open" ? "🟢" : t.status === "in_progress" ? "🟡" : "🔴";
+      message += `${statusEmoji} <b>Ticket #${t.ticketId}</b>\n`;
+      message += `   Status: ${t.status}\n`;
+      message += `   Created: ${new Date(t.createdAt).toLocaleDateString()}\n`;
+      message += `   Subject: ${t.subject.substring(0, 50)}${t.subject.length > 50 ? "..." : ""}\n\n`;
+    });
+
+    const buttons = tickets.slice(0, 10).map(t => ([
+      { text: `#${t.ticketId} - ${t.status}`, callback_data: `view_ticket_${t.ticketId}` }
+    ]));
+
+    buttons.push([{ text: "🏠 Main Menu", callback_data: "cmd_start" }]);
+
+    return sendMessage(chatId, message, {
+      reply_markup: { inline_keyboard: buttons }
+    });
   }
 
   /* ADMIN COMMANDS */
@@ -173,14 +234,20 @@ What would you like to update?`,
 /deleteuser &lt;username|userid&gt; — Delete user
 /infoall — List all users
 
+<b>Ticket Management:</b>
+/tickets — View all tickets
+/ticket_stats — Ticket statistics
+
+<b>Settings:</b>
+/setgrouplink &lt;link&gt; — Update Telegram group link
+/viewsettings — View current settings
+
 <b>Broadcasting:</b>
 /cast &lt;message&gt; — Send message to all users
 
 <b>Example Usage:</b>
 <code>/getuser @john</code>
-<code>/getuser 123456789</code>
-<code>/modifyuser @john</code>
-<code>/deleteuser 123456789</code>`,
+<code>/setgrouplink https://t.me/+xyz</code>`,
       {
         reply_markup: {
           inline_keyboard: [
@@ -188,7 +255,123 @@ What would you like to update?`,
               { text: "👥 All Users", callback_data: "admin_infoall" },
               { text: "📊 Stats", callback_data: "admin_stats" }
             ],
+            [
+              { text: "🎫 Tickets", callback_data: "admin_tickets" },
+              { text: "⚙️ Settings", callback_data: "admin_settings" }
+            ],
             [{ text: "🏠 Main Menu", callback_data: "cmd_start" }]
+          ]
+        }
+      }
+    );
+  }
+
+  /* /setgrouplink */
+  if (text.startsWith("/setgrouplink ")) {
+    const link = text.replace("/setgrouplink ", "").trim();
+    
+    if (!link.includes("t.me/")) {
+      return sendMessage(chatId, "❌ Invalid Telegram link. Please provide a valid t.me link.");
+    }
+
+    await updateSettings({ groupLink: link });
+    return sendMessage(
+      chatId,
+      `✅ <b>Group link updated!</b>\n\nNew link: ${link}`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "🔙 Back to Admin", callback_data: "cmd_listcmds" }]
+          ]
+        }
+      }
+    );
+  }
+
+  /* /viewsettings */
+  if (text === "/viewsettings") {
+    const settings = await getSettings();
+    return sendMessage(
+      chatId,
+      `<b>⚙️ Current Settings</b>
+
+🔗 <b>Telegram Group Link:</b>
+${settings?.groupLink || "Not set"}
+
+📅 <b>Last Updated:</b> ${settings?.updatedAt ? new Date(settings.updatedAt).toLocaleString() : "Never"}`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "✏️ Update Link", callback_data: "admin_update_link" }],
+            [{ text: "🔙 Back", callback_data: "cmd_listcmds" }]
+          ]
+        }
+      }
+    );
+  }
+
+  /* /tickets */
+  if (text === "/tickets") {
+    const tickets = await getAllTickets();
+    
+    if (tickets.length === 0) {
+      return sendMessage(chatId, "📭 No tickets found.");
+    }
+
+    let message = `<b>🎫 All Support Tickets (${tickets.length})</b>\n\n`;
+    
+    const openTickets = tickets.filter(t => t.status === "open");
+    const inProgressTickets = tickets.filter(t => t.status === "in_progress");
+    const closedTickets = tickets.filter(t => t.status === "closed");
+
+    message += `🟢 Open: ${openTickets.length}\n`;
+    message += `🟡 In Progress: ${inProgressTickets.length}\n`;
+    message += `🔴 Closed: ${closedTickets.length}\n\n`;
+
+    const recentTickets = tickets.slice(0, 10);
+    recentTickets.forEach(t => {
+      const statusEmoji = t.status === "open" ? "🟢" : t.status === "in_progress" ? "🟡" : "🔴";
+      message += `${statusEmoji} <b>#${t.ticketId}</b> - ${t.username || t.firstName}\n`;
+      message += `   ${t.subject.substring(0, 60)}${t.subject.length > 60 ? "..." : ""}\n\n`;
+    });
+
+    const buttons = recentTickets.map(t => ([
+      { text: `#${t.ticketId} - ${t.status}`, callback_data: `admin_view_ticket_${t.ticketId}` }
+    ]));
+
+    buttons.push([{ text: "🔙 Back", callback_data: "cmd_listcmds" }]);
+
+    return sendMessage(chatId, message, {
+      reply_markup: { inline_keyboard: buttons }
+    });
+  }
+
+  /* /ticket_stats */
+  if (text === "/ticket_stats") {
+    const tickets = await getAllTickets();
+    const users = await getAllUsers();
+
+    const openTickets = tickets.filter(t => t.status === "open").length;
+    const inProgressTickets = tickets.filter(t => t.status === "in_progress").length;
+    const closedTickets = tickets.filter(t => t.status === "closed").length;
+
+    return sendMessage(
+      chatId,
+      `<b>📊 Ticket Statistics</b>
+
+<b>Total Tickets:</b> ${tickets.length}
+🟢 Open: ${openTickets}
+🟡 In Progress: ${inProgressTickets}
+🔴 Closed: ${closedTickets}
+
+<b>User Statistics:</b>
+👥 Total Users: ${users.length}
+📅 Generated: ${new Date().toLocaleString()}`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "🎫 View All Tickets", callback_data: "admin_tickets" }],
+            [{ text: "🔙 Back", callback_data: "cmd_listcmds" }]
           ]
         }
       }
@@ -236,13 +419,13 @@ What would you like to update?`,
       message += `<b>${i + 1}. ${u.firstName} ${u.lastName || ""}</b>\n`;
       message += `   🆔 ID: <code>${u.telegramId}</code>\n`;
       message += `   👤 Username: ${u.username ? "@" + u.username : "—"}\n`;
-      message += `   📱 X: ${u.xHandle ? "@" + u.xHandle : "—"}\n`;
+      message += `   📱 X: ${u.xHandle || "—"}\n`;
+      message += `   💬 Discord: ${u.discord || "—"}\n`;
       message += `   🔗 Chain: ${u.chain || "—"}\n`;
       message += `   💼 Wallet: ${u.wallet ? `<code>${u.wallet.slice(0, 6)}...${u.wallet.slice(-4)}</code>` : "—"}\n`;
       message += `   📅 Registered: ${new Date(u.registeredAt).toLocaleDateString()}\n\n`;
     });
 
-    // Split message if too long
     if (message.length > 4000) {
       const chunks = message.match(/[\s\S]{1,4000}/g);
       for (const chunk of chunks) {
@@ -277,7 +460,8 @@ What would you like to update?`,
 • Telegram ID: <code>${u.telegramId}</code>
 
 <b>Social & Wallet:</b>
-• X Handle: ${u.xHandle ? "@" + u.xHandle : "—"}
+• X Profile: ${u.xHandle || "—"}
+• Discord: ${u.discord || "—"}
 • Blockchain: ${u.chain || "—"}
 • Wallet: ${u.wallet ? `<code>${u.wallet}</code>` : "—"}
 
@@ -325,7 +509,8 @@ What would you like to modify?`,
       {
         reply_markup: {
           inline_keyboard: [
-            [{ text: "📱 X Handle", callback_data: `modify_x_${u.telegramId}` }],
+            [{ text: "📱 X Profile", callback_data: `modify_x_${u.telegramId}` }],
+            [{ text: "💬 Discord", callback_data: `modify_discord_${u.telegramId}` }],
             [{ text: "🔗 Chain", callback_data: `modify_chain_${u.telegramId}` }],
             [{ text: "💼 Wallet", callback_data: `modify_wallet_${u.telegramId}` }],
             [{ text: "❌ Cancel", callback_data: "cancel_admin" }]
@@ -356,7 +541,7 @@ Are you sure you want to delete this user?
 
 <b>User:</b> ${u.username ? "@" + u.username : u.firstName}
 <b>ID:</b> <code>${u.telegramId}</code>
-<b>X Handle:</b> ${u.xHandle ? "@" + u.xHandle : "—"}
+<b>X Profile:</b> ${u.xHandle || "—"}
 
 This action cannot be undone!`,
       {
@@ -373,11 +558,48 @@ This action cannot be undone!`,
   }
 }
 
+// CONTINUED IN NEXT MESSAGE DUE TO LENGTH...
+
+// PART 2 - STATE HANDLERS AND CALLBACKS
+// ADD THIS TO THE END OF THE PREVIOUS commands.js FILE
+
 /* STATE FLOW */
 async function handleState(state, text, chatId, from) {
   /* User recording info */
   if (state.step === "ASK_X") {
+    if (!validateXProfile(text)) {
+      return sendMessage(
+        chatId,
+        "❌ <b>Invalid X/Twitter profile link.</b>\n\nPlease send a valid link like:\n• https://x.com/username\n• https://twitter.com/username",
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "❌ Cancel", callback_data: "cancel" }]
+            ]
+          }
+        }
+      );
+    }
+
     await updateUser(from.id, { xHandle: text, updatedAt: new Date() });
+    await setState(from.id, { step: "ASK_DISCORD" });
+
+    return sendMessage(
+      chatId,
+      "💬 Please send your <b>Discord username</b>\n\nIf you don't have Discord, type <b>NA</b> to continue.",
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "❌ Cancel", callback_data: "cancel" }]
+          ]
+        }
+      }
+    );
+  }
+
+  if (state.step === "ASK_DISCORD") {
+    const discord = text.toLowerCase() === "na" ? "N/A" : text;
+    await updateUser(from.id, { discord, updatedAt: new Date() });
     await setState(from.id, { step: "ASK_CHAIN" });
 
     return sendMessage(chatId, "🔗 <b>Select your wallet chain:</b>", {
@@ -420,14 +642,21 @@ async function handleState(state, text, chatId, from) {
 
     await clearState(from.id);
     
+    const settings = await getSettings();
+    const groupLink = settings?.groupLink || "https://t.me/+G4xabOPPuo02M2E1";
+
     return sendMessage(
       chatId,
-      `✅ <b>Information saved successfully!</b>
+      `✅ <b>Registration Complete!</b>
 
-Your data has been securely stored.`,
+Thank you for filling out the form! Your information has been securely saved.
+
+🎉 <b>Join Our Community!</b>
+Click the button below to join our Telegram group and connect with other members.`,
       {
         reply_markup: {
           inline_keyboard: [
+            [{ text: "🚀 Join Telegram Group", url: groupLink }],
             [{ text: "👤 View My Info", callback_data: "cmd_getinfo" }],
             [{ text: "🏠 Main Menu", callback_data: "cmd_start" }]
           ]
@@ -436,14 +665,21 @@ Your data has been securely stored.`,
     );
   }
 
-  /* Update X only */
+  /* Update flows */
   if (state.step === "UPDATE_X") {
+    if (!validateXProfile(text)) {
+      return sendMessage(
+        chatId,
+        "❌ <b>Invalid X/Twitter profile link.</b>\n\nPlease send a valid link."
+      );
+    }
+
     await updateUser(from.id, { xHandle: text, updatedAt: new Date() });
     await clearState(from.id);
     
     return sendMessage(
       chatId,
-      `✅ <b>X Handle updated!</b>\n\nNew X Handle: @${text}`,
+      `✅ <b>X Profile updated!</b>\n\nNew profile: ${text}`,
       {
         reply_markup: {
           inline_keyboard: [
@@ -455,7 +691,25 @@ Your data has been securely stored.`,
     );
   }
 
-  /* Update wallet flow */
+  if (state.step === "UPDATE_DISCORD") {
+    const discord = text.toLowerCase() === "na" ? "N/A" : text;
+    await updateUser(from.id, { discord, updatedAt: new Date() });
+    await clearState(from.id);
+    
+    return sendMessage(
+      chatId,
+      `✅ <b>Discord username updated!</b>\n\nNew Discord: ${discord}`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "👤 View My Info", callback_data: "cmd_getinfo" }],
+            [{ text: "🏠 Main Menu", callback_data: "cmd_start" }]
+          ]
+        }
+      }
+    );
+  }
+
   if (state.step === "UPDATE_WALLET") {
     if (!validateWallet(state.chain, text)) {
       return sendMessage(
@@ -489,14 +743,218 @@ Wallet: <code>${text}</code>`,
     );
   }
 
+  /* Ticket Creation */
+  if (state.step === "TICKET_CREATE") {
+    const ticketId = Date.now();
+    await createTicket({
+      ticketId,
+      userId: from.id,
+      username: from.username || null,
+      firstName: from.first_name,
+      subject: text,
+      status: "open",
+      messages: [{
+        from: "user",
+        text,
+        timestamp: new Date()
+      }],
+      createdAt: new Date()
+    });
+
+    await clearState(from.id);
+
+    // Notify admins
+    const adminIds = process.env.ADMIN_IDS?.split(",") || [];
+    for (const adminId of adminIds) {
+      try {
+        await sendMessage(
+          adminId,
+          `<b>🎫 New Support Ticket #${ticketId}</b>
+
+<b>From:</b> ${from.first_name} ${from.username ? `(@${from.username})` : ""}
+<b>User ID:</b> <code>${from.id}</code>
+
+<b>Message:</b>
+${text}`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: "📝 Reply to Ticket", callback_data: `admin_reply_ticket_${ticketId}` }],
+                [{ text: "🟡 Mark In Progress", callback_data: `admin_progress_ticket_${ticketId}` }],
+                [{ text: "✅ Close Ticket", callback_data: `admin_close_ticket_${ticketId}` }]
+              ]
+            }
+          }
+        );
+      } catch {}
+    }
+
+    return sendMessage(
+      chatId,
+      `✅ <b>Ticket Created!</b>
+
+Your support ticket #${ticketId} has been created successfully. Our team will respond as soon as possible.
+
+You can view your tickets anytime using /mytickets`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "📋 My Tickets", callback_data: "my_tickets" }],
+            [{ text: "🏠 Main Menu", callback_data: "cmd_start" }]
+          ]
+        }
+      }
+    );
+  }
+
+  /* Ticket Reply - User */
+  if (state.step === "TICKET_REPLY") {
+    const ticket = await getTicket(state.ticketId);
+    
+    if (!ticket) {
+      await clearState(from.id);
+      return sendMessage(chatId, "❌ Ticket not found.");
+    }
+
+    ticket.messages.push({
+      from: "user",
+      text,
+      timestamp: new Date()
+    });
+
+    await updateTicket(state.ticketId, { messages: ticket.messages });
+    await clearState(from.id);
+
+    // Notify admins
+    const adminIds = process.env.ADMIN_IDS?.split(",") || [];
+    for (const adminId of adminIds) {
+      try {
+        await sendMessage(
+          adminId,
+          `<b>💬 New Reply on Ticket #${state.ticketId}</b>
+
+<b>From:</b> ${from.first_name}
+
+<b>Message:</b>
+${text}`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: "📝 Reply", callback_data: `admin_reply_ticket_${state.ticketId}` }],
+                [{ text: "🔍 View Full Ticket", callback_data: `admin_view_ticket_${state.ticketId}` }]
+              ]
+            }
+          }
+        );
+      } catch {}
+    }
+
+    return sendMessage(
+      chatId,
+      `✅ <b>Reply sent!</b>
+
+Your message has been added to ticket #${state.ticketId}. You'll receive a notification when an admin responds.`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "📋 View Ticket", callback_data: `view_ticket_${state.ticketId}` }],
+            [{ text: "🏠 Main Menu", callback_data: "cmd_start" }]
+          ]
+        }
+      }
+    );
+  }
+
+  /* Admin Ticket Reply */
+  if (state.step === "ADMIN_TICKET_REPLY") {
+    const ticket = await getTicket(state.ticketId);
+    
+    if (!ticket) {
+      await clearState(from.id);
+      return sendMessage(chatId, "❌ Ticket not found.");
+    }
+
+    ticket.messages.push({
+      from: "admin",
+      adminName: from.first_name,
+      text,
+      timestamp: new Date()
+    });
+
+    await updateTicket(state.ticketId, { 
+      messages: ticket.messages,
+      status: "in_progress"
+    });
+    
+    await clearState(from.id);
+
+    // Notify user
+    try {
+      await sendMessage(
+        ticket.userId,
+        `<b>📬 Admin replied to your ticket #${state.ticketId}</b>
+
+<b>From:</b> ${from.first_name} (Admin)
+
+<b>Message:</b>
+${text}`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "💬 Reply", callback_data: `reply_ticket_${state.ticketId}` }],
+              [{ text: "📋 View Full Ticket", callback_data: `view_ticket_${state.ticketId}` }]
+            ]
+          }
+        }
+      );
+    } catch {}
+
+    return sendMessage(
+      chatId,
+      `✅ <b>Reply sent to user!</b>
+
+Your message has been sent to the ticket creator.`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "🔍 View Ticket", callback_data: `admin_view_ticket_${state.ticketId}` }],
+            [{ text: "🔙 Back to Tickets", callback_data: "admin_tickets" }]
+          ]
+        }
+      }
+    );
+  }
+
   /* Admin modify user */
   if (state.step === "ADMIN_MODIFY_X") {
+    if (!validateXProfile(text)) {
+      return sendMessage(chatId, "❌ Invalid X profile link. Try again:");
+    }
+
     await updateUser(state.targetUserId, { xHandle: text, updatedAt: new Date() });
     await clearState(from.id);
     
     return sendMessage(
       chatId,
-      `✅ <b>User updated!</b>\n\nNew X Handle for ${state.targetUsername}: @${text}`,
+      `✅ <b>User updated!</b>\n\nNew X Profile for ${state.targetUsername}: ${text}`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "🔙 Back to Admin", callback_data: "cmd_listcmds" }]
+          ]
+        }
+      }
+    );
+  }
+
+  if (state.step === "ADMIN_MODIFY_DISCORD") {
+    const discord = text.toLowerCase() === "na" ? "N/A" : text;
+    await updateUser(state.targetUserId, { discord, updatedAt: new Date() });
+    await clearState(from.id);
+    
+    return sendMessage(
+      chatId,
+      `✅ <b>User updated!</b>\n\nNew Discord for ${state.targetUsername}: ${discord}`,
       {
         reply_markup: {
           inline_keyboard: [
@@ -526,6 +984,27 @@ Wallet: <code>${text}</code>`,
         reply_markup: {
           inline_keyboard: [
             [{ text: "🔙 Back to Admin", callback_data: "cmd_listcmds" }]
+          ]
+        }
+      }
+    );
+  }
+
+  if (state.step === "ADMIN_UPDATE_LINK") {
+    if (!text.includes("t.me/")) {
+      return sendMessage(chatId, "❌ Invalid Telegram link. Please provide a valid t.me link.");
+    }
+
+    await updateSettings({ groupLink: text });
+    await clearState(from.id);
+    
+    return sendMessage(
+      chatId,
+      `✅ <b>Group link updated!</b>\n\nNew link: ${text}`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "🔙 Back to Settings", callback_data: "admin_settings" }]
           ]
         }
       }
@@ -561,7 +1040,12 @@ export async function handleCallback(callbackQuery) {
   /* Update flows */
   if (data === "update_x") {
     await setState(from.id, { step: "UPDATE_X" });
-    return sendMessage(chatId, "📱 Send your new X (Twitter) username (without @):");
+    return sendMessage(chatId, "📱 Send your new X (Twitter) profile link:");
+  }
+
+  if (data === "update_discord") {
+    await setState(from.id, { step: "UPDATE_DISCORD" });
+    return sendMessage(chatId, "💬 Send your new Discord username (or NA if none):");
   }
 
   if (data === "update_wallet") {
@@ -596,7 +1080,105 @@ export async function handleCallback(callbackQuery) {
   /* Skip wallet */
   if (data === "skip_wallet") {
     await clearState(from.id);
-    return sendMessage(chatId, "✅ Wallet setup skipped. You can add it later with /updateinfo");
+    
+    const settings = await getSettings();
+    const groupLink = settings?.groupLink || "https://t.me/+G4xabOPPuo02M2E1";
+
+    return sendMessage(
+      chatId,
+      `✅ <b>Registration Complete!</b>
+
+Wallet setup skipped. You can add it later using Update Info.
+
+🎉 <b>Join Our Community!</b>
+Click the button below to join our Telegram group!`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "🚀 Join Telegram Group", url: groupLink }],
+            [{ text: "🏠 Main Menu", callback_data: "cmd_start" }]
+          ]
+        }
+      }
+    );
+  }
+
+  /* Ticket System - User */
+  if (data === "ticket_menu") {
+    return sendMessage(
+      chatId,
+      `<b>🎫 Ticket System</b>
+
+Need help or have questions? Create a support ticket and our team will assist you.`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "🎫 Create New Ticket", callback_data: "ticket_create" }],
+            [{ text: "📋 My Tickets", callback_data: "my_tickets" }],
+            [{ text: "🏠 Main Menu", callback_data: "cmd_start" }]
+          ]
+        }
+      }
+    );
+  }
+
+  if (data === "ticket_create") {
+    await setState(from.id, { step: "TICKET_CREATE" });
+    return sendMessage(
+      chatId,
+      `<b>🎫 Create Support Ticket</b>
+
+Please describe your issue or question in detail.`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "❌ Cancel", callback_data: "cancel" }]
+          ]
+        }
+      }
+    );
+  }
+
+  if (data === "my_tickets") {
+    await handleCommand({ chat: { id: chatId }, text: "/mytickets", from });
+    return;
+  }
+
+  if (data.startsWith("view_ticket_")) {
+    const ticketId = data.replace("view_ticket_", "");
+    const ticket = await getTicket(ticketId);
+    
+    if (!ticket) {
+      return sendMessage(chatId, "❌ Ticket not found.");
+    }
+
+    const statusEmoji = ticket.status === "open" ? "🟢" : ticket.status === "in_progress" ? "🟡" : "🔴";
+    let message = `<b>${statusEmoji} Ticket #${ticket.ticketId}</b>\n\n`;
+    message += `<b>Status:</b> ${ticket.status}\n`;
+    message += `<b>Created:</b> ${new Date(ticket.createdAt).toLocaleString()}\n\n`;
+    message += `<b>📝 Conversation:</b>\n\n`;
+    
+    ticket.messages.forEach((msg, i) => {
+      const sender = msg.from === "user" ? "You" : `Admin (${msg.adminName || "Staff"})`;
+      message += `<b>${sender}:</b>\n${msg.text}\n`;
+      message += `<i>${new Date(msg.timestamp).toLocaleString()}</i>\n\n`;
+    });
+
+    const buttons = [];
+    if (ticket.status !== "closed") {
+      buttons.push([{ text: "💬 Reply", callback_data: `reply_ticket_${ticketId}` }]);
+    }
+    buttons.push([{ text: "🔙 Back to My Tickets", callback_data: "my_tickets" }]);
+
+    return sendMessage(chatId, message, {
+      reply_markup: { inline_keyboard: buttons }
+    });
+  }
+
+  if (data.startsWith("reply_ticket_")) {
+    const ticketId = data.replace("reply_ticket_", "");
+    await setState(from.id, { step: "TICKET_REPLY", ticketId: Number(ticketId) });
+    return sendMessage(chatId, "💬 Type your reply:");
   }
 
   /* Admin callbacks */
@@ -611,6 +1193,7 @@ export async function handleCallback(callbackQuery) {
     const users = await getAllUsers();
     const withWallet = users.filter(u => u.wallet).length;
     const withX = users.filter(u => u.xHandle).length;
+    const withDiscord = users.filter(u => u.discord && u.discord !== "N/A").length;
 
     return sendMessage(
       chatId,
@@ -618,12 +1201,143 @@ export async function handleCallback(callbackQuery) {
 
 👥 Total Users: ${users.length}
 💼 With Wallet: ${withWallet}
-📱 With X Handle: ${withX}
+📱 With X Profile: ${withX}
+💬 With Discord: ${withDiscord}
 📅 Generated: ${new Date().toLocaleString()}`
     );
   }
 
-  /* Admin modify */
+  if (data === "admin_tickets") {
+    await handleCommand({ chat: { id: chatId }, text: "/tickets", from });
+    return;
+  }
+
+  if (data === "admin_settings") {
+    await handleCommand({ chat: { id: chatId }, text: "/viewsettings", from });
+    return;
+  }
+
+  if (data === "admin_update_link") {
+    await setState(from.id, { step: "ADMIN_UPDATE_LINK" });
+    return sendMessage(chatId, "🔗 Send the new Telegram group link:");
+  }
+
+  /* Admin Ticket Management */
+  if (data.startsWith("admin_view_ticket_")) {
+    const ticketId = data.replace("admin_view_ticket_", "");
+    const ticket = await getTicket(ticketId);
+    
+    if (!ticket) {
+      return sendMessage(chatId, "❌ Ticket not found.");
+    }
+
+    const statusEmoji = ticket.status === "open" ? "🟢" : ticket.status === "in_progress" ? "🟡" : "🔴";
+    let message = `<b>${statusEmoji} Ticket #${ticket.ticketId}</b>\n\n`;
+    message += `<b>From:</b> ${ticket.firstName} ${ticket.username ? `(@${ticket.username})` : ""}\n`;
+    message += `<b>User ID:</b> <code>${ticket.userId}</code>\n`;
+    message += `<b>Status:</b> ${ticket.status}\n`;
+    message += `<b>Created:</b> ${new Date(ticket.createdAt).toLocaleString()}\n\n`;
+    message += `<b>📝 Conversation:</b>\n\n`;
+    
+    ticket.messages.forEach((msg, i) => {
+      const sender = msg.from === "user" ? ticket.firstName : `Admin (${msg.adminName})`;
+      message += `<b>${sender}:</b>\n${msg.text}\n`;
+      message += `<i>${new Date(msg.timestamp).toLocaleString()}</i>\n\n`;
+    });
+
+    const buttons = [];
+    if (ticket.status !== "closed") {
+      buttons.push([
+        { text: "📝 Reply", callback_data: `admin_reply_ticket_${ticketId}` },
+        { text: "🟡 In Progress", callback_data: `admin_progress_ticket_${ticketId}` }
+      ]);
+      buttons.push([{ text: "✅ Close Ticket", callback_data: `admin_close_ticket_${ticketId}` }]);
+    } else {
+      buttons.push([{ text: "🔄 Reopen", callback_data: `admin_reopen_ticket_${ticketId}` }]);
+    }
+    buttons.push([{ text: "🔙 Back to Tickets", callback_data: "admin_tickets" }]);
+
+    return sendMessage(chatId, message, {
+      reply_markup: { inline_keyboard: buttons }
+    });
+  }
+
+  if (data.startsWith("admin_reply_ticket_")) {
+    const ticketId = data.replace("admin_reply_ticket_", "");
+    await setState(from.id, { step: "ADMIN_TICKET_REPLY", ticketId: Number(ticketId) });
+    return sendMessage(chatId, "📝 Type your reply to the user:");
+  }
+
+  if (data.startsWith("admin_progress_ticket_")) {
+    const ticketId = data.replace("admin_progress_ticket_", "");
+    await updateTicket(Number(ticketId), { status: "in_progress" });
+    
+    const ticket = await getTicket(ticketId);
+    try {
+      await sendMessage(
+        ticket.userId,
+        `<b>🟡 Ticket #${ticketId} Status Updated</b>
+
+Your ticket is now being worked on by our team.`
+      );
+    } catch {}
+
+    return sendMessage(chatId, `✅ Ticket #${ticketId} marked as in progress.`, {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "🔍 View Ticket", callback_data: `admin_view_ticket_${ticketId}` }],
+          [{ text: "🔙 Back", callback_data: "admin_tickets" }]
+        ]
+      }
+    });
+  }
+
+  if (data.startsWith("admin_close_ticket_")) {
+    const ticketId = data.replace("admin_close_ticket_", "");
+    await updateTicket(Number(ticketId), { status: "closed" });
+    
+    const ticket = await getTicket(ticketId);
+    try {
+      await sendMessage(
+        ticket.userId,
+        `<b>✅ Ticket #${ticketId} Closed</b>
+
+Your support ticket has been resolved and closed. Thank you for reaching out!
+
+If you need further assistance, feel free to create a new ticket.`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "🎫 Create New Ticket", callback_data: "ticket_create" }]
+            ]
+          }
+        }
+      );
+    } catch {}
+
+    return sendMessage(chatId, `✅ Ticket #${ticketId} has been closed.`, {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "🔙 Back to Tickets", callback_data: "admin_tickets" }]
+        ]
+      }
+    });
+  }
+
+  if (data.startsWith("admin_reopen_ticket_")) {
+    const ticketId = data.replace("admin_reopen_ticket_", "");
+    await updateTicket(Number(ticketId), { status: "open" });
+    
+    return sendMessage(chatId, `✅ Ticket #${ticketId} has been reopened.`, {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "🔍 View Ticket", callback_data: `admin_view_ticket_${ticketId}` }]
+        ]
+      }
+    });
+  }
+
+  /* Admin modify user */
   if (data.startsWith("modify_x_")) {
     const userId = Number(data.replace("modify_x_", ""));
     const user = await getUser(userId);
@@ -634,7 +1348,20 @@ export async function handleCallback(callbackQuery) {
       targetUsername: user.username || user.firstName
     });
 
-    return sendMessage(chatId, `📱 Send new X handle for <b>${user.username || user.firstName}</b>:`);
+    return sendMessage(chatId, `📱 Send new X profile link for <b>${user.username || user.firstName}</b>:`);
+  }
+
+  if (data.startsWith("modify_discord_")) {
+    const userId = Number(data.replace("modify_discord_", ""));
+    const user = await getUser(userId);
+    
+    await setState(from.id, {
+      step: "ADMIN_MODIFY_DISCORD",
+      targetUserId: userId,
+      targetUsername: user.username || user.firstName
+    });
+
+    return sendMessage(chatId, `💬 Send new Discord username for <b>${user.username || user.firstName}</b>:`);
   }
 
   if (data.startsWith("modify_chain_")) {
@@ -651,8 +1378,7 @@ export async function handleCallback(callbackQuery) {
       reply_markup: {
         inline_keyboard: [
           [{ text: "EVM", callback_data: `admin_chain_EVM_${userId}` }, { text: "ERC20", callback_data: `admin_chain_ERC20_${userId}` }],
-          [{ text: "SOL", callback_data: `admin_chain_SOL_${userId}` }, { text: "BNB", callback_data: `admin_chain_BNB_${userId}` }]
-        ]
+          [{ text: "SOL", callback_data: `admin_chain_SOL_${userId}` }, { text: "BNB", callback_data: `admin_chain_BNB_${userId}` }]        ]
       }
     });
   }
