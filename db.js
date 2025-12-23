@@ -24,15 +24,19 @@ export async function updateUser(telegramId, data) {
   const database = await connectDB();
   await database.collection("users").updateOne(
     { telegramId },
-    { $set: data }
+    { $set: { ...data, updatedAt: new Date() } }
   );
 }
 
 export async function getUser(query) {
   const database = await connectDB();
+  
+  // Try to parse as number for telegramId lookup
+  const numQuery = Number(query);
+  
   return database.collection("users").findOne({
     $or: [
-      { telegramId: Number(query) },
+      { telegramId: isNaN(numQuery) ? null : numQuery },
       { username: query },
       { xHandle: query }
     ]
@@ -41,14 +45,21 @@ export async function getUser(query) {
 
 export async function getAllUsers() {
   const database = await connectDB();
-  return database.collection("users").find({}).toArray();
+  return database.collection("users")
+    .find({})
+    .sort({ registeredAt: -1 })
+    .toArray();
 }
 
 export async function deleteUser(query) {
   const database = await connectDB();
+  
+  // Try to parse as number
+  const numQuery = Number(query);
+  
   return database.collection("users").deleteOne({
     $or: [
-      { telegramId: Number(query) },
+      { telegramId: isNaN(numQuery) ? null : numQuery },
       { username: query }
     ]
   });
@@ -59,7 +70,7 @@ export async function setState(telegramId, state) {
   const database = await connectDB();
   await database.collection("states").updateOne(
     { telegramId },
-    { $set: state },
+    { $set: { ...state, telegramId } },
     { upsert: true }
   );
 }
