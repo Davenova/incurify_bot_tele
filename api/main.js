@@ -1,15 +1,26 @@
-import { handleCommand } from "../commands.js";
+import { handleCommand, handleCallback } from "../commands.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(200).send("OK");
   }
 
-  const update = req.body;
+  try {
+    const update = req.body;
 
-  if (update.message?.text) {
-    await handleCommand(update.message);
+    // Handle text messages
+    if (update.message?.text) {
+      await handleCommand(update.message);
+    }
+
+    // Handle callback queries (inline button clicks)
+    if (update.callback_query) {
+      await handleCallback(update.callback_query);
+    }
+
+    return res.status(200).send("OK");
+  } catch (error) {
+    console.error("Error handling update:", error);
+    return res.status(200).send("OK");
   }
-
-  return res.status(200).send("OK");
 }
