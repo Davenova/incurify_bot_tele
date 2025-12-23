@@ -1,7 +1,3 @@
-// ============================================
-// PART 1 OF 4 - IMPORTS AND BASIC COMMANDS
-// ============================================
-
 import {
   sendMessage,
   isAdmin,
@@ -269,13 +265,6 @@ Please describe your issue or question in detail. Our team will respond as soon 
       }
     );
   }
-
-// END OF PART 1 - CONTINUE TO PART 2
-
-
-// ============================================
-// PART 2 OF 4 - ADMIN COMMANDS CONTINUED
-// ============================================
 
   /* /setgrouplink */
   if (text.startsWith("/setgrouplink ")) {
@@ -568,12 +557,6 @@ This action cannot be undone!`,
     );
   }
 }
-
-// END OF PART 2 - CONTINUE TO PART 3
-
-// ============================================
-// PART 3 OF 4 - STATE HANDLERS
-// ============================================
 
 /* STATE FLOW */
 async function handleState(state, text, chatId, from) {
@@ -1024,12 +1007,6 @@ Your message has been sent to the ticket creator.`,
   }
 }
 
-// END OF PART 3 - CONTINUE TO PART 4
-
-// ============================================
-// PART 4 OF 4 - CALLBACK HANDLERS (FINAL)
-// ============================================
-
 /* CALLBACK QUERY HANDLER */
 export async function handleCallback(callbackQuery) {
   const chatId = callbackQuery.message.chat.id;
@@ -1457,7 +1434,3 @@ If you need further assistance, feel free to create a new ticket.`,
     );
   }
 }
-
-// ============================================
-// END OF PART 4 - FILE COMPLETE!
-// ============================================
