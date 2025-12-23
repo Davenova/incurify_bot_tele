@@ -1,3 +1,7 @@
+// ============================================
+// PART 1 OF 4 - IMPORTS AND BASIC COMMANDS
+// ============================================
+
 import {
   sendMessage,
   isAdmin,
@@ -219,7 +223,7 @@ Please describe your issue or question in detail. Our team will respond as soon 
     });
   }
 
-  /* ADMIN COMMANDS */
+  /* ADMIN COMMANDS START HERE - Only accessible by admins */
   if (!isAdmin(from.id)) return;
 
   /* /listcmds */
@@ -265,6 +269,13 @@ Please describe your issue or question in detail. Our team will respond as soon 
       }
     );
   }
+
+// END OF PART 1 - CONTINUE TO PART 2
+
+
+// ============================================
+// PART 2 OF 4 - ADMIN COMMANDS CONTINUED
+// ============================================
 
   /* /setgrouplink */
   if (text.startsWith("/setgrouplink ")) {
@@ -558,10 +569,11 @@ This action cannot be undone!`,
   }
 }
 
-// CONTINUED IN NEXT MESSAGE DUE TO LENGTH...
+// END OF PART 2 - CONTINUE TO PART 3
 
-// PART 2 - STATE HANDLERS AND CALLBACKS
-// ADD THIS TO THE END OF THE PREVIOUS commands.js FILE
+// ============================================
+// PART 3 OF 4 - STATE HANDLERS
+// ============================================
 
 /* STATE FLOW */
 async function handleState(state, text, chatId, from) {
@@ -1012,6 +1024,12 @@ Your message has been sent to the ticket creator.`,
   }
 }
 
+// END OF PART 3 - CONTINUE TO PART 4
+
+// ============================================
+// PART 4 OF 4 - CALLBACK HANDLERS (FINAL)
+// ============================================
+
 /* CALLBACK QUERY HANDLER */
 export async function handleCallback(callbackQuery) {
   const chatId = callbackQuery.message.chat.id;
@@ -1378,7 +1396,8 @@ If you need further assistance, feel free to create a new ticket.`,
       reply_markup: {
         inline_keyboard: [
           [{ text: "EVM", callback_data: `admin_chain_EVM_${userId}` }, { text: "ERC20", callback_data: `admin_chain_ERC20_${userId}` }],
-          [{ text: "SOL", callback_data: `admin_chain_SOL_${userId}` }, { text: "BNB", callback_data: `admin_chain_BNB_${userId}` }]        ]
+          [{ text: "SOL", callback_data: `admin_chain_SOL_${userId}` }, { text: "BNB", callback_data: `admin_chain_BNB_${userId}` }]
+        ]
       }
     });
   }
@@ -1438,3 +1457,7 @@ If you need further assistance, feel free to create a new ticket.`,
     );
   }
 }
+
+// ============================================
+// END OF PART 4 - FILE COMPLETE!
+// ============================================
