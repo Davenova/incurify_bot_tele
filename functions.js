@@ -47,6 +47,18 @@ export function isAdmin(userId) {
   return adminIds.includes(String(userId));
 }
 
+/* X/Twitter Profile Validation */
+export function validateXProfile(url) {
+  if (!url) return false;
+  
+  // Remove whitespace
+  url = url.trim();
+  
+  // Check if it's a valid X/Twitter profile link
+  const xPattern = /^https?:\/\/(www\.)?(twitter\.com|x\.com)\/[a-zA-Z0-9_]+\/?$/;
+  return xPattern.test(url);
+}
+
 /* Wallet validation */
 export function validateWallet(chain, address) {
   if (!address) return false;
