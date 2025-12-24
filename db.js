@@ -16,7 +16,7 @@ export async function saveUserBasic(user) {
   const database = await connectDB();
   await database.collection("users").updateOne(
     { telegramId: user.telegramId },
-    { $setOnInsert: user },
+    { $setOnInsert: { ...user, approvalStatus: "none" } },
     { upsert: true }
   );
 }
@@ -48,6 +48,14 @@ export async function getAllUsers() {
   return database.collection("users")
     .find({})
     .sort({ registeredAt: -1 })
+    .toArray();
+}
+
+export async function getPendingUsers() {
+  const database = await connectDB();
+  return database.collection("users")
+    .find({ approvalStatus: "pending" })
+    .sort({ submittedAt: -1 })
     .toArray();
 }
 
