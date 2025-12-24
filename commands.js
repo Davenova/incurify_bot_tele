@@ -1,9 +1,16 @@
+// ============================================
+// PART 1 OF 4 - IMPORTS AND BASIC COMMANDS
+// WITH APPROVAL SYSTEM
+// ============================================
+
 import {
   sendMessage,
   isAdmin,
   validateWallet,
   validateXProfile,
-  editMessage
+  normalizeXProfile,
+  editMessage,
+  addToGoogleSheet
 } from "./functions.js";
 
 import {
@@ -11,6 +18,7 @@ import {
   updateUser,
   getUser,
   getAllUsers,
+  getPendingUsers,
   deleteUser,
   setState,
   getState,
@@ -67,7 +75,7 @@ Fill out the form to join our group.`,
     await setState(from.id, { step: "ASK_X" });
     return sendMessage(
       chatId,
-      "📱 Please send your <b>X (Twitter) profile link</b>\n\nExample: https://x.com/username or https://twitter.com/username",
+      "📱 Please send your <b>X (Twitter) profile link</b>\n\nYou can send it as:\n• x.com/username\n• https://x.com/username\n• twitter.com/username",
       {
         reply_markup: {
           inline_keyboard: [
@@ -139,6 +147,64 @@ What would you like to update?`,
     );
   }
 
+  /* /status - Check approval status */
+  if (text === "/status") {
+    const user = await getUser(from.id);
+    if (!user) {
+      return sendMessage(chatId, "❌ No data found. Please fill out the Form first.");
+    }
+
+    const statusEmoji = {
+      "none": "⚪",
+      "pending": "🟡",
+      "approved": "🟢",
+      "rejected": "🔴"
+    };
+
+    const statusText = {
+      "none": "Not Submitted",
+      "pending": "Pending Review",
+      "approved": "Approved ✅",
+      "rejected": "Rejected"
+    };
+
+    let message = `<b>📊 Application Status</b>
+
+<b>Status:</b> ${statusEmoji[user.approvalStatus || "none"]} ${statusText[user.approvalStatus || "none"]}
+`;
+
+    if (user.approvalStatus === "pending") {
+      message += `\n⏳ Your application is being reviewed by our team. You will be notified once a decision is made.`;
+    } else if (user.approvalStatus === "approved") {
+      const settings = await getSettings();
+      const groupLink = settings?.groupLink || "https://t.me/+G4xabOPPuo02M2E1";
+      
+      message += `\n✅ Congratulations! Your application has been approved.`;
+      
+      return sendMessage(chatId, message, {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "🚀 Join Incurify Group", url: groupLink }],
+            [{ text: "🏠 Main Menu", callback_data: "cmd_start" }]
+          ]
+        }
+      });
+    } else if (user.approvalStatus === "rejected") {
+      message += `\n\n<b>Reason:</b> ${user.rejectionReason || "Not specified"}`;
+      message += `\n\nYou can update your information and resubmit using /updateinfo`;
+    } else {
+      message += `\n\nℹ️ You haven't submitted your application yet. Please complete the form to apply.`;
+    }
+
+    return sendMessage(chatId, message, {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "🏠 Main Menu", callback_data: "cmd_start" }]
+        ]
+      }
+    });
+  }
+
   /* /help */
   if (text === "/help") {
     return sendMessage(
@@ -149,6 +215,7 @@ What would you like to update?`,
 /recordinfo — Fill out the form
 /getinfo — View your information
 /updateinfo — Update your information
+/status — Check approval status
 /ticket — Create a support ticket
 /mytickets — View your tickets
 /help — Show this help message`,
@@ -219,11 +286,13 @@ Please describe your issue or question in detail. Our team will respond as soon 
     });
   }
 
-  /* ADMIN COMMANDS START HERE - Only accessible by admins */
+  /* ADMIN COMMANDS START HERE */
   if (!isAdmin(from.id)) return;
 
   /* /listcmds */
   if (text === "/listcmds") {
+    const pendingCount = (await getPendingUsers()).length;
+    
     return sendMessage(
       chatId,
       `<b>🔧 Admin Commands Panel</b>
@@ -233,6 +302,7 @@ Please describe your issue or question in detail. Our team will respond as soon 
 /modifyuser &lt;username|userid&gt; — Modify user data
 /deleteuser &lt;username|userid&gt; — Delete user
 /infoall — List all users
+/pending — View pending approvals ${pendingCount > 0 ? `(${pendingCount})` : ""}
 
 <b>Ticket Management:</b>
 /tickets — View all tickets
@@ -243,20 +313,19 @@ Please describe your issue or question in detail. Our team will respond as soon 
 /viewsettings — View current settings
 
 <b>Broadcasting:</b>
-/cast &lt;message&gt; — Send message to all users
-
-<b>Example Usage:</b>
-<code>/getuser @john</code>
-<code>/setgrouplink https://t.me/+xyz</code>`,
+/cast &lt;message&gt; — Send message to all users`,
       {
         reply_markup: {
           inline_keyboard: [
             [
-              { text: "👥 All Users", callback_data: "admin_infoall" },
-              { text: "📊 Stats", callback_data: "admin_stats" }
+              { text: `✅ Pending (${pendingCount})`, callback_data: "admin_pending" },
+              { text: "👥 All Users", callback_data: "admin_infoall" }
             ],
             [
-              { text: "🎫 Tickets", callback_data: "admin_tickets" },
+              { text: "📊 Stats", callback_data: "admin_stats" },
+              { text: "🎫 Tickets", callback_data: "admin_tickets" }
+            ],
+            [
               { text: "⚙️ Settings", callback_data: "admin_settings" }
             ],
             [{ text: "🏠 Main Menu", callback_data: "cmd_start" }]
@@ -265,6 +334,39 @@ Please describe your issue or question in detail. Our team will respond as soon 
       }
     );
   }
+
+  /* /pending - View pending approvals */
+  if (text === "/pending") {
+    const pending = await getPendingUsers();
+    
+    if (pending.length === 0) {
+      return sendMessage(chatId, "✅ No pending applications.");
+    }
+
+    let message = `<b>⏳ Pending Approvals (${pending.length})</b>\n\n`;
+    
+    pending.forEach((u, i) => {
+      message += `<b>${i + 1}. ${u.firstName}</b> ${u.username ? `(@${u.username})` : ""}\n`;
+      message += `   ID: <code>${u.telegramId}</code>\n`;
+      message += `   Submitted: ${new Date(u.submittedAt).toLocaleString()}\n\n`;
+    });
+
+    const buttons = pending.slice(0, 10).map(u => ([
+      { text: `Review ${u.firstName}`, callback_data: `review_user_${u.telegramId}` }
+    ]));
+
+    buttons.push([{ text: "🔙 Back", callback_data: "cmd_listcmds" }]);
+
+    return sendMessage(chatId, message, {
+      reply_markup: { inline_keyboard: buttons }
+    });
+  }
+
+// END OF PART 1 - CONTINUE TO PART 2
+
+// ============================================
+// PART 2 OF 4 - ADMIN COMMANDS CONTINUED
+// ============================================
 
   /* /setgrouplink */
   if (text.startsWith("/setgrouplink ")) {
@@ -350,27 +452,37 @@ ${settings?.groupLink || "Not set"}
   if (text === "/ticket_stats") {
     const tickets = await getAllTickets();
     const users = await getAllUsers();
+    const pending = await getPendingUsers();
 
     const openTickets = tickets.filter(t => t.status === "open").length;
     const inProgressTickets = tickets.filter(t => t.status === "in_progress").length;
     const closedTickets = tickets.filter(t => t.status === "closed").length;
 
+    const approved = users.filter(u => u.approvalStatus === "approved").length;
+    const rejected = users.filter(u => u.approvalStatus === "rejected").length;
+
     return sendMessage(
       chatId,
-      `<b>📊 Ticket Statistics</b>
+      `<b>📊 Bot Statistics</b>
 
-<b>Total Tickets:</b> ${tickets.length}
+<b>Users:</b>
+👥 Total Users: ${users.length}
+✅ Approved: ${approved}
+⏳ Pending: ${pending.length}
+❌ Rejected: ${rejected}
+
+<b>Tickets:</b>
+🎫 Total: ${tickets.length}
 🟢 Open: ${openTickets}
 🟡 In Progress: ${inProgressTickets}
 🔴 Closed: ${closedTickets}
 
-<b>User Statistics:</b>
-👥 Total Users: ${users.length}
 📅 Generated: ${new Date().toLocaleString()}`,
       {
         reply_markup: {
           inline_keyboard: [
             [{ text: "🎫 View All Tickets", callback_data: "admin_tickets" }],
+            [{ text: "✅ Pending Approvals", callback_data: "admin_pending" }],
             [{ text: "🔙 Back", callback_data: "cmd_listcmds" }]
           ]
         }
@@ -416,7 +528,14 @@ ${settings?.groupLink || "Not set"}
     let message = `<b>👥 All Users (${users.length})</b>\n\n`;
 
     users.forEach((u, i) => {
-      message += `<b>${i + 1}. ${u.firstName} ${u.lastName || ""}</b>\n`;
+      const statusEmoji = {
+        "none": "⚪",
+        "pending": "🟡",
+        "approved": "🟢",
+        "rejected": "🔴"
+      };
+
+      message += `<b>${i + 1}. ${u.firstName} ${u.lastName || ""}</b> ${statusEmoji[u.approvalStatus || "none"]}\n`;
       message += `   🆔 ID: <code>${u.telegramId}</code>\n`;
       message += `   👤 Username: ${u.username ? "@" + u.username : "—"}\n`;
       message += `   📱 X: ${u.xHandle || "—"}\n`;
@@ -450,6 +569,13 @@ ${settings?.groupLink || "Not set"}
       return sendMessage(chatId, `❌ User not found: <b>${query}</b>`);
     }
 
+    const statusEmoji = {
+      "none": "⚪",
+      "pending": "🟡",
+      "approved": "🟢",
+      "rejected": "🔴"
+    };
+
     return sendMessage(
       chatId,
       `<b>👤 User Details</b>
@@ -465,9 +591,14 @@ ${settings?.groupLink || "Not set"}
 • Blockchain: ${u.chain || "—"}
 • Wallet: ${u.wallet ? `<code>${u.wallet}</code>` : "—"}
 
+<b>Status:</b>
+• Approval: ${statusEmoji[u.approvalStatus || "none"]} ${u.approvalStatus || "none"}
+${u.rejectionReason ? `• Rejection Reason: ${u.rejectionReason}` : ""}
+
 <b>Activity:</b>
 • Registered: ${new Date(u.registeredAt).toLocaleString()}
-• Last Updated: ${u.updatedAt ? new Date(u.updatedAt).toLocaleString() : "—"}`,
+• Last Updated: ${u.updatedAt ? new Date(u.updatedAt).toLocaleString() : "—"}
+${u.submittedAt ? `• Submitted: ${new Date(u.submittedAt).toLocaleString()}` : ""}`,
       {
         reply_markup: {
           inline_keyboard: [
@@ -558,6 +689,12 @@ This action cannot be undone!`,
   }
 }
 
+// END OF PART 2 - CONTINUE TO PART 3
+
+// ============================================
+// PART 3 OF 4 - STATE HANDLERS WITH CONFIRMATION STEP
+// ============================================
+
 /* STATE FLOW */
 async function handleState(state, text, chatId, from) {
   /* User recording info */
@@ -565,7 +702,7 @@ async function handleState(state, text, chatId, from) {
     if (!validateXProfile(text)) {
       return sendMessage(
         chatId,
-        "❌ <b>Invalid X/Twitter profile link.</b>\n\nPlease send a valid link like:\n• https://x.com/username\n• https://twitter.com/username",
+        "❌ <b>Invalid X/Twitter profile link.</b>\n\nPlease send a valid link like:\n• x.com/username\n• https://x.com/username\n• twitter.com/username",
         {
           reply_markup: {
             inline_keyboard: [
@@ -576,7 +713,8 @@ async function handleState(state, text, chatId, from) {
       );
     }
 
-    await updateUser(from.id, { xHandle: text, updatedAt: new Date() });
+    const normalizedUrl = normalizeXProfile(text);
+    await updateUser(from.id, { xHandle: normalizedUrl, updatedAt: new Date() });
     await setState(from.id, { step: "ASK_DISCORD" });
 
     return sendMessage(
@@ -637,23 +775,28 @@ async function handleState(state, text, chatId, from) {
 
     await clearState(from.id);
     
-    const settings = await getSettings();
-    const groupLink = settings?.groupLink || "https://t.me/+G4xabOPPuo02M2E1";
-
+    // Show confirmation step
+    const user = await getUser(from.id);
+    
     return sendMessage(
       chatId,
-      `✅ <b>Registration Complete!</b>
+      `<b>📋 Please Confirm Your Information</b>
 
-Thank you for filling out the form! Your information has been securely saved.
+👤 <b>Name:</b> ${user.firstName} ${user.lastName || ""}
+🆔 <b>Username:</b> @${user.username || "—"}
+📱 <b>X Profile:</b> ${user.xHandle || "—"}
+💬 <b>Discord:</b> ${user.discord || "—"}
+🔗 <b>Chain:</b> ${user.chain || "—"}
+💼 <b>Wallet:</b> ${user.wallet ? `<code>${user.wallet}</code>` : "—"}
 
-🎉 <b>Join Our Community!</b>
-Click the button below to join our Telegram group and connect with other members.`,
+Is this information correct?`,
       {
         reply_markup: {
           inline_keyboard: [
-            [{ text: "🚀 Join Telegram Group", url: groupLink }],
-            [{ text: "👤 View My Info", callback_data: "cmd_getinfo" }],
-            [{ text: "🏠 Main Menu", callback_data: "cmd_start" }]
+            [
+              { text: "✅ Submit", callback_data: "confirm_submit" },
+              { text: "✏️ Edit", callback_data: "confirm_edit" }
+            ]
           ]
         }
       }
@@ -669,12 +812,13 @@ Click the button below to join our Telegram group and connect with other members
       );
     }
 
-    await updateUser(from.id, { xHandle: text, updatedAt: new Date() });
+    const normalizedUrl = normalizeXProfile(text);
+    await updateUser(from.id, { xHandle: normalizedUrl, updatedAt: new Date() });
     await clearState(from.id);
     
     return sendMessage(
       chatId,
-      `✅ <b>X Profile updated!</b>\n\nNew profile: ${text}`,
+      `✅ <b>X Profile updated!</b>\n\nNew profile: ${normalizedUrl}`,
       {
         reply_markup: {
           inline_keyboard: [
@@ -920,18 +1064,61 @@ Your message has been sent to the ticket creator.`,
     );
   }
 
+  /* Admin Rejection Reason */
+  if (state.step === "ADMIN_REJECT_REASON") {
+    const targetUserId = state.targetUserId;
+    
+    await updateUser(targetUserId, {
+      approvalStatus: "rejected",
+      rejectionReason: text,
+      reviewedAt: new Date()
+    });
+    
+    await clearState(from.id);
+
+    const user = await getUser(targetUserId);
+
+    // Notify user
+    try {
+      await sendMessage(
+        targetUserId,
+        `<b>❌ Application Rejected</b>
+
+Your application has been reviewed and unfortunately was not approved.
+
+<b>Reason:</b> ${text}
+
+You can update your information and resubmit using /updateinfo`
+      );
+    } catch {}
+
+    return sendMessage(
+      chatId,
+      `✅ <b>User rejected</b>\n\nUser: ${user.firstName}\nReason sent to user.`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "✅ View Pending", callback_data: "admin_pending" }],
+            [{ text: "🔙 Back", callback_data: "cmd_listcmds" }]
+          ]
+        }
+      }
+    );
+  }
+
   /* Admin modify user */
   if (state.step === "ADMIN_MODIFY_X") {
     if (!validateXProfile(text)) {
       return sendMessage(chatId, "❌ Invalid X profile link. Try again:");
     }
 
-    await updateUser(state.targetUserId, { xHandle: text, updatedAt: new Date() });
+    const normalizedUrl = normalizeXProfile(text);
+    await updateUser(state.targetUserId, { xHandle: normalizedUrl, updatedAt: new Date() });
     await clearState(from.id);
     
     return sendMessage(
       chatId,
-      `✅ <b>User updated!</b>\n\nNew X Profile for ${state.targetUsername}: ${text}`,
+      `✅ <b>User updated!</b>\n\nNew X Profile for ${state.targetUsername}: ${normalizedUrl}`,
       {
         reply_markup: {
           inline_keyboard: [
@@ -1007,6 +1194,12 @@ Your message has been sent to the ticket creator.`,
   }
 }
 
+// END OF PART 3 - CONTINUE TO PART 4
+
+// ============================================
+// PART 4 OF 4 - CALLBACK HANDLERS WITH APPROVAL SYSTEM (FINAL)
+// ============================================
+
 /* CALLBACK QUERY HANDLER */
 export async function handleCallback(callbackQuery) {
   const chatId = callbackQuery.message.chat.id;
@@ -1019,6 +1212,236 @@ export async function handleCallback(callbackQuery) {
     const cmd = data.replace("cmd_", "");
     await handleCommand({ chat: { id: chatId }, text: `/${cmd}`, from });
     return;
+  }
+
+  /* Confirmation callbacks */
+  if (data === "confirm_submit") {
+    const user = await getUser(from.id);
+    
+    await updateUser(from.id, {
+      approvalStatus: "pending",
+      submittedAt: new Date()
+    });
+
+    // Add to Google Sheets
+    await addToGoogleSheet(user);
+
+    // Get settings for group link
+    const settings = await getSettings();
+    const groupLink = settings?.groupLink || "https://t.me/+G4xabOPPuo02M2E1";
+
+    // Notify admins
+    const adminIds = process.env.ADMIN_IDS?.split(",") || [];
+    for (const adminId of adminIds) {
+      try {
+        await sendMessage(
+          adminId,
+          `<b>📋 New Application Submitted</b>
+
+<b>User:</b> ${user.firstName} ${user.username ? `(@${user.username})` : ""}
+<b>Telegram ID:</b> <code>${user.telegramId}</code>
+
+<b>Details:</b>
+📱 X Profile: ${user.xHandle || "—"}
+💬 Discord: ${user.discord || "—"}
+🔗 Chain: ${user.chain || "—"}
+💼 Wallet: ${user.wallet ? `<code>${user.wallet}</code>` : "—"}
+
+📅 Submitted: ${new Date().toLocaleString()}`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: "✅ Approve", callback_data: `approve_user_${user.telegramId}` },
+                  { text: "❌ Reject", callback_data: `reject_user_${user.telegramId}` }
+                ],
+                [{ text: "👤 View Profile", callback_data: `review_user_${user.telegramId}` }]
+              ]
+            }
+          }
+        );
+      } catch {}
+    }
+
+    return sendMessage(
+      chatId,
+      `✅ <b>Registration Complete!</b>
+
+Thank you for submitting your application!
+
+<b>What's Next?</b>
+Your form has been submitted for approval. Once verified, you will be able to access our group <b>Incurify</b>.
+
+You will receive a notification once your application has been reviewed.
+
+Use /status anytime to check your application status.`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "📊 Check Status", callback_data: "check_status" }],
+            [{ text: "🏠 Main Menu", callback_data: "cmd_start" }]
+          ]
+        }
+      }
+    );
+  }
+
+  if (data === "confirm_edit") {
+    return sendMessage(
+      chatId,
+      `<b>✏️ Edit Your Information</b>
+
+What would you like to edit?`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "📱 X Profile", callback_data: "update_x" }],
+            [{ text: "💬 Discord", callback_data: "update_discord" }],
+            [{ text: "🔗 Wallet", callback_data: "update_wallet" }],
+            [{ text: "🔄 Start Over", callback_data: "cmd_recordinfo" }],
+            [{ text: "❌ Cancel", callback_data: "cancel" }]
+          ]
+        }
+      }
+    );
+  }
+
+  if (data === "check_status") {
+    await handleCommand({ chat: { id: chatId }, text: "/status", from });
+    return;
+  }
+
+  /* Admin Approval Callbacks */
+  if (data.startsWith("review_user_")) {
+    if (!isAdmin(from.id)) return;
+
+    const userId = Number(data.replace("review_user_", ""));
+    const user = await getUser(userId);
+
+    if (!user) {
+      return sendMessage(chatId, "❌ User not found.");
+    }
+
+    const statusEmoji = {
+      "none": "⚪",
+      "pending": "🟡",
+      "approved": "🟢",
+      "rejected": "🔴"
+    };
+
+    return sendMessage(
+      chatId,
+      `<b>📋 Application Review</b>
+
+<b>User Info:</b>
+👤 Name: ${user.firstName} ${user.lastName || ""}
+🆔 Username: ${user.username ? "@" + user.username : "—"}
+🆔 Telegram ID: <code>${user.telegramId}</code>
+
+<b>Submitted Details:</b>
+📱 X Profile: ${user.xHandle || "—"}
+💬 Discord: ${user.discord || "—"}
+🔗 Chain: ${user.chain || "—"}
+💼 Wallet: ${user.wallet ? `<code>${user.wallet}</code>` : "—"}
+
+<b>Status:</b> ${statusEmoji[user.approvalStatus || "none"]} ${user.approvalStatus || "none"}
+
+📅 Submitted: ${user.submittedAt ? new Date(user.submittedAt).toLocaleString() : "—"}`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: "✅ Approve", callback_data: `approve_user_${userId}` },
+              { text: "❌ Reject", callback_data: `reject_user_${userId}` }
+            ],
+            [{ text: "🔙 Back to Pending", callback_data: "admin_pending" }]
+          ]
+        }
+      }
+    );
+  }
+
+  if (data.startsWith("approve_user_")) {
+    if (!isAdmin(from.id)) return;
+
+    const userId = Number(data.replace("approve_user_", ""));
+    const user = await getUser(userId);
+
+    if (!user) {
+      return sendMessage(chatId, "❌ User not found.");
+    }
+
+    await updateUser(userId, {
+      approvalStatus: "approved",
+      approvedBy: from.id,
+      approvedAt: new Date()
+    });
+
+    const settings = await getSettings();
+    const groupLink = settings?.groupLink || "https://t.me/+G4xabOPPuo02M2E1";
+
+    // Notify user
+    try {
+      await sendMessage(
+        userId,
+        `<b>🎉 Application Approved!</b>
+
+Congratulations! Your application to join Incurify has been approved.
+
+You can now join our exclusive Telegram group using the button below.
+
+Welcome to the community! 🚀`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "🚀 Join Incurify Group", url: groupLink }]
+            ]
+          }
+        }
+      );
+    } catch {}
+
+    return sendMessage(
+      chatId,
+      `✅ <b>User Approved!</b>
+
+User: ${user.firstName} ${user.username ? `(@${user.username})` : ""}
+Status: Approved
+User has been notified and can now join the group.`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "✅ View Pending", callback_data: "admin_pending" }],
+            [{ text: "🔙 Back", callback_data: "cmd_listcmds" }]
+          ]
+        }
+      }
+    );
+  }
+
+  if (data.startsWith("reject_user_")) {
+    if (!isAdmin(from.id)) return;
+
+    const userId = Number(data.replace("reject_user_", ""));
+    const user = await getUser(userId);
+
+    if (!user) {
+      return sendMessage(chatId, "❌ User not found.");
+    }
+
+    await setState(from.id, {
+      step: "ADMIN_REJECT_REASON",
+      targetUserId: userId
+    });
+
+    return sendMessage(
+      chatId,
+      `<b>❌ Reject Application</b>
+
+User: ${user.firstName} ${user.username ? `(@${user.username})` : ""}
+
+Please provide a reason for rejection. This will be sent to the user.`
+    );
   }
 
   /* Cancel */
@@ -1076,22 +1499,27 @@ export async function handleCallback(callbackQuery) {
   if (data === "skip_wallet") {
     await clearState(from.id);
     
-    const settings = await getSettings();
-    const groupLink = settings?.groupLink || "https://t.me/+G4xabOPPuo02M2E1";
-
+    // Show confirmation without wallet
+    const user = await getUser(from.id);
+    
     return sendMessage(
       chatId,
-      `✅ <b>Registration Complete!</b>
+      `<b>📋 Please Confirm Your Information</b>
 
-Wallet setup skipped. You can add it later using Update Info.
+👤 <b>Name:</b> ${user.firstName} ${user.lastName || ""}
+🆔 <b>Username:</b> @${user.username || "—"}
+📱 <b>X Profile:</b> ${user.xHandle || "—"}
+💬 <b>Discord:</b> ${user.discord || "—"}
+🔗 <b>Wallet:</b> Not provided
 
-🎉 <b>Join Our Community!</b>
-Click the button below to join our Telegram group!`,
+Is this information correct?`,
       {
         reply_markup: {
           inline_keyboard: [
-            [{ text: "🚀 Join Telegram Group", url: groupLink }],
-            [{ text: "🏠 Main Menu", callback_data: "cmd_start" }]
+            [
+              { text: "✅ Submit", callback_data: "confirm_submit" },
+              { text: "✏️ Edit", callback_data: "confirm_edit" }
+            ]
           ]
         }
       }
@@ -1179,6 +1607,11 @@ Please describe your issue or question in detail.`,
   /* Admin callbacks */
   if (!isAdmin(from.id)) return;
 
+  if (data === "admin_pending") {
+    await handleCommand({ chat: { id: chatId }, text: "/pending", from });
+    return;
+  }
+
   if (data === "admin_infoall") {
     await handleCommand({ chat: { id: chatId }, text: "/infoall", from });
     return;
@@ -1186,18 +1619,28 @@ Please describe your issue or question in detail.`,
 
   if (data === "admin_stats") {
     const users = await getAllUsers();
+    const pending = await getPendingUsers();
     const withWallet = users.filter(u => u.wallet).length;
     const withX = users.filter(u => u.xHandle).length;
     const withDiscord = users.filter(u => u.discord && u.discord !== "N/A").length;
+    const approved = users.filter(u => u.approvalStatus === "approved").length;
+    const rejected = users.filter(u => u.approvalStatus === "rejected").length;
 
     return sendMessage(
       chatId,
       `<b>📊 Bot Statistics</b>
 
+<b>Users:</b>
 👥 Total Users: ${users.length}
+✅ Approved: ${approved}
+⏳ Pending: ${pending.length}
+❌ Rejected: ${rejected}
+
+<b>Data Completion:</b>
 💼 With Wallet: ${withWallet}
 📱 With X Profile: ${withX}
 💬 With Discord: ${withDiscord}
+
 📅 Generated: ${new Date().toLocaleString()}`
     );
   }
@@ -1434,3 +1877,7 @@ If you need further assistance, feel free to create a new ticket.`,
     );
   }
 }
+
+// ============================================
+// END OF PART 4 - FILE COMPLETE!
+// ============================================
