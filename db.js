@@ -16,7 +16,17 @@ export async function saveUserBasic(user) {
   const database = await connectDB();
   await database.collection("users").updateOne(
     { telegramId: user.telegramId },
-    { $setOnInsert: { ...user, approvalStatus: "none" } },
+    { 
+      $setOnInsert: { 
+        ...user, 
+        approvalStatus: "none",
+        submissionCount: 0,
+        xHandleHistory: [],
+        discordHistory: [],
+        chainHistory: [],
+        walletHistory: []
+      } 
+    },
     { upsert: true }
   );
 }
@@ -70,6 +80,59 @@ export async function deleteUser(query) {
       { username: query }
     ]
   });
+}
+
+/* Track submission history */
+export async function trackSubmissionHistory(telegramId, newData) {
+  const database = await connectDB();
+  const user = await getUser(telegramId);
+  
+  if (!user) return;
+  
+  const updates = {
+    submissionCount: (user.submissionCount || 0) + 1
+  };
+  
+  // Track X handle changes
+  if (newData.xHandle && newData.xHandle !== user.xHandle) {
+    const xHistory = user.xHandleHistory || [];
+    if (!xHistory.includes(newData.xHandle)) {
+      xHistory.push(newData.xHandle);
+      updates.xHandleHistory = xHistory;
+    }
+  }
+  
+  // Track Discord changes
+  if (newData.discord && newData.discord !== user.discord) {
+    const discordHistory = user.discordHistory || [];
+    if (!discordHistory.includes(newData.discord)) {
+      discordHistory.push(newData.discord);
+      updates.discordHistory = discordHistory;
+    }
+  }
+  
+  // Track Chain changes
+  if (newData.chain && newData.chain !== user.chain) {
+    const chainHistory = user.chainHistory || [];
+    if (!chainHistory.includes(newData.chain)) {
+      chainHistory.push(newData.chain);
+      updates.chainHistory = chainHistory;
+    }
+  }
+  
+  // Track Wallet changes
+  if (newData.wallet && newData.wallet !== user.wallet) {
+    const walletHistory = user.walletHistory || [];
+    if (!walletHistory.includes(newData.wallet)) {
+      walletHistory.push(newData.wallet);
+      updates.walletHistory = walletHistory;
+    }
+  }
+  
+  await database.collection("users").updateOne(
+    { telegramId },
+    { $set: updates }
+  );
 }
 
 /* USER STATE */
