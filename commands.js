@@ -1,6 +1,5 @@
 // ============================================
-// PART 1 OF 4 - IMPORTS AND BASIC COMMANDS
-// WITH APPROVAL SYSTEM
+// PART 1 OF 4 - COMPLETE FINAL VERSION
 // ============================================
 
 import {
@@ -10,7 +9,7 @@ import {
   validateXProfile,
   normalizeXProfile,
   editMessage,
-  addToGoogleSheet
+  updateGoogleSheet
 } from "./functions.js";
 
 import {
@@ -30,7 +29,8 @@ import {
   getAllTickets,
   updateTicket,
   getOpenTickets,
-  getTicketsByUser
+  getTicketsByUser,
+  trackSubmissionHistory
 } from "./db.js";
 
 export async function handleCommand(message) {
@@ -72,6 +72,28 @@ Fill out the form to join our group.`,
 
   /* /recordinfo */
   if (text === "/recordinfo") {
+    const user = await getUser(from.id);
+    
+    // Check if user has pending application
+    if (user && user.approvalStatus === "pending") {
+      return sendMessage(
+        chatId,
+        `⏳ <b>Application Already Submitted</b>
+
+Your application is currently pending review. You cannot submit a new application while one is pending.
+
+Use /status to check your application status.`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "📊 Check Status", callback_data: "check_status" }],
+              [{ text: "🏠 Main Menu", callback_data: "cmd_start" }]
+            ]
+          }
+        }
+      );
+    }
+    
     await setState(from.id, { step: "ASK_X" });
     return sendMessage(
       chatId,
@@ -176,19 +198,7 @@ What would you like to update?`,
     if (user.approvalStatus === "pending") {
       message += `\n⏳ Your application is being reviewed by our team. You will be notified once a decision is made.`;
     } else if (user.approvalStatus === "approved") {
-      const settings = await getSettings();
-      const groupLink = settings?.groupLink || "https://t.me/+G4xabOPPuo02M2E1";
-      
-      message += `\n✅ Congratulations! Your application has been approved.`;
-      
-      return sendMessage(chatId, message, {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: "🚀 Join Incurify Group", url: groupLink }],
-            [{ text: "🏠 Main Menu", callback_data: "cmd_start" }]
-          ]
-        }
-      });
+      message += `\n✅ Congratulations! Your application has been approved.\n\nWelcome to Incurify! 🚀`;
     } else if (user.approvalStatus === "rejected") {
       message += `\n\n<b>Reason:</b> ${user.rejectionReason || "Not specified"}`;
       message += `\n\nYou can update your information and resubmit using /updateinfo`;
@@ -335,7 +345,7 @@ Please describe your issue or question in detail. Our team will respond as soon 
     );
   }
 
-  /* /pending - View pending approvals */
+  /* /pending */
   if (text === "/pending") {
     const pending = await getPendingUsers();
     
@@ -362,10 +372,10 @@ Please describe your issue or question in detail. Our team will respond as soon 
     });
   }
 
-// END OF PART 1 - CONTINUE TO PART 2
+// END OF PART 1
 
 // ============================================
-// PART 2 OF 4 - ADMIN COMMANDS CONTINUED
+// PART 2 OF 4 - ADMIN COMMANDS
 // ============================================
 
   /* /setgrouplink */
@@ -594,6 +604,7 @@ ${settings?.groupLink || "Not set"}
 <b>Status:</b>
 • Approval: ${statusEmoji[u.approvalStatus || "none"]} ${u.approvalStatus || "none"}
 ${u.rejectionReason ? `• Rejection Reason: ${u.rejectionReason}` : ""}
+• Submissions: ${u.submissionCount || 0}
 
 <b>Activity:</b>
 • Registered: ${new Date(u.registeredAt).toLocaleString()}
@@ -689,10 +700,10 @@ This action cannot be undone!`,
   }
 }
 
-// END OF PART 2 - CONTINUE TO PART 3
+// END OF PART 2
 
 // ============================================
-// PART 3 OF 4 - STATE HANDLERS WITH CONFIRMATION STEP
+// PART 3 OF 4 - STATE HANDLERS
 // ============================================
 
 /* STATE FLOW */
@@ -1194,10 +1205,10 @@ You can update your information and resubmit using /updateinfo`
   }
 }
 
-// END OF PART 3 - CONTINUE TO PART 4
+// END OF PART 3
 
 // ============================================
-// PART 4 OF 4 - CALLBACK HANDLERS WITH APPROVAL SYSTEM (FINAL)
+// PART 4 OF 4 - CALLBACK HANDLERS (FINAL)
 // ============================================
 
 /* CALLBACK QUERY HANDLER */
@@ -1218,44 +1229,55 @@ export async function handleCallback(callbackQuery) {
   if (data === "confirm_submit") {
     const user = await getUser(from.id);
     
+    // Track submission history
+    await trackSubmissionHistory(from.id, {
+      xHandle: user.xHandle,
+      discord: user.discord,
+      chain: user.chain,
+      wallet: user.wallet
+    });
+    
     await updateUser(from.id, {
       approvalStatus: "pending",
       submittedAt: new Date()
     });
 
-    // Add to Google Sheets
-    await addToGoogleSheet(user);
-
-    // Get settings for group link
-    const settings = await getSettings();
-    const groupLink = settings?.groupLink || "https://t.me/+G4xabOPPuo02M2E1";
+    // Get updated user data with submission count
+    const updatedUser = await getUser(from.id);
+    
+    // Update Google Sheets
+    await updateGoogleSheet(updatedUser);
 
     // Notify admins
     const adminIds = process.env.ADMIN_IDS?.split(",") || [];
     for (const adminId of adminIds) {
       try {
+        const submissionText = updatedUser.submissionCount > 1 
+          ? `\n🔄 <b>Re-submission #${updatedUser.submissionCount}</b>`
+          : "";
+        
         await sendMessage(
           adminId,
-          `<b>📋 New Application Submitted</b>
+          `<b>📋 New Application Submitted</b>${submissionText}
 
-<b>User:</b> ${user.firstName} ${user.username ? `(@${user.username})` : ""}
-<b>Telegram ID:</b> <code>${user.telegramId}</code>
+<b>User:</b> ${updatedUser.firstName} ${updatedUser.username ? `(@${updatedUser.username})` : ""}
+<b>Telegram ID:</b> <code>${updatedUser.telegramId}</code>
 
 <b>Details:</b>
-📱 X Profile: ${user.xHandle || "—"}
-💬 Discord: ${user.discord || "—"}
-🔗 Chain: ${user.chain || "—"}
-💼 Wallet: ${user.wallet ? `<code>${user.wallet}</code>` : "—"}
+📱 X Profile: ${updatedUser.xHandle || "—"}
+💬 Discord: ${updatedUser.discord || "—"}
+🔗 Chain: ${updatedUser.chain || "—"}
+💼 Wallet: ${updatedUser.wallet ? `<code>${updatedUser.wallet}</code>` : "—"}
 
 📅 Submitted: ${new Date().toLocaleString()}`,
           {
             reply_markup: {
               inline_keyboard: [
                 [
-                  { text: "✅ Approve", callback_data: `approve_user_${user.telegramId}` },
-                  { text: "❌ Reject", callback_data: `reject_user_${user.telegramId}` }
+                  { text: "✅ Approve", callback_data: `approve_user_${updatedUser.telegramId}` },
+                  { text: "❌ Reject", callback_data: `reject_user_${updatedUser.telegramId}` }
                 ],
-                [{ text: "👤 View Profile", callback_data: `review_user_${user.telegramId}` }]
+                [{ text: "👤 View Profile", callback_data: `review_user_${updatedUser.telegramId}` }]
               ]
             }
           }
@@ -1345,6 +1367,7 @@ What would you like to edit?`,
 💼 Wallet: ${user.wallet ? `<code>${user.wallet}</code>` : "—"}
 
 <b>Status:</b> ${statusEmoji[user.approvalStatus || "none"]} ${user.approvalStatus || "none"}
+<b>Submissions:</b> ${user.submissionCount || 0}
 
 📅 Submitted: ${user.submittedAt ? new Date(user.submittedAt).toLocaleString() : "—"}`,
       {
@@ -1377,10 +1400,7 @@ What would you like to edit?`,
       approvedAt: new Date()
     });
 
-    const settings = await getSettings();
-    const groupLink = settings?.groupLink || "https://t.me/+G4xabOPPuo02M2E1";
-
-    // Notify user
+    // Notify user - NO GROUP LINK
     try {
       await sendMessage(
         userId,
@@ -1388,16 +1408,7 @@ What would you like to edit?`,
 
 Congratulations! Your application to join Incurify has been approved.
 
-You can now join our exclusive Telegram group using the button below.
-
-Welcome to the community! 🚀`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: "🚀 Join Incurify Group", url: groupLink }]
-            ]
-          }
-        }
+Welcome to Incurify! 🚀`
       );
     } catch {}
 
@@ -1407,7 +1418,7 @@ Welcome to the community! 🚀`,
 
 User: ${user.firstName} ${user.username ? `(@${user.username})` : ""}
 Status: Approved
-User has been notified and can now join the group.`,
+User has been notified.`,
       {
         reply_markup: {
           inline_keyboard: [
@@ -1879,5 +1890,5 @@ If you need further assistance, feel free to create a new ticket.`,
 }
 
 // ============================================
-// END OF PART 4 - FILE COMPLETE!
+// END - FILE COMPLETE!
 // ============================================
