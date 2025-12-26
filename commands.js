@@ -1,15 +1,16 @@
 // ============================================
-// PART 1 OF 4 - COMPLETE FINAL VERSION
+// PART 1 OF 4 - FINAL VERSION (NO WALLET)
 // ============================================
 
 import {
   sendMessage,
   isAdmin,
-  validateWallet,
   validateXProfile,
   normalizeXProfile,
   editMessage,
-  updateGoogleSheet
+  updateGoogleSheet,
+  createUniqueInviteLink,
+  revokeInviteLink
 } from "./functions.js";
 
 import {
@@ -122,8 +123,6 @@ Use /status to check your application status.`,
 Current Data:
 • X Profile: ${user.xHandle || "—"}
 • Discord: ${user.discord || "—"}
-• Chain: ${user.chain || "—"}
-• Wallet: ${user.wallet || "—"}
 
 What would you like to update?`,
       {
@@ -131,7 +130,6 @@ What would you like to update?`,
           inline_keyboard: [
             [{ text: "📱 Update X Profile", callback_data: "update_x" }],
             [{ text: "💬 Update Discord", callback_data: "update_discord" }],
-            [{ text: "🔗 Update Chain & Wallet", callback_data: "update_wallet" }],
             [{ text: "🔄 Update All", callback_data: "cmd_recordinfo" }],
             [{ text: "❌ Cancel", callback_data: "cancel" }]
           ]
@@ -155,8 +153,6 @@ What would you like to update?`,
 🆔 <b>Username:</b> @${user.username || "—"}
 📱 <b>X Profile:</b> ${user.xHandle || "—"}
 💬 <b>Discord:</b> ${user.discord || "—"}
-🔗 <b>Chain:</b> ${user.chain || "—"}
-💼 <b>Wallet:</b> ${user.wallet ? `<code>${user.wallet}</code>` : "—"}
 📅 <b>Registered:</b> ${new Date(user.registeredAt).toLocaleString()}`,
       {
         reply_markup: {
@@ -199,6 +195,18 @@ What would you like to update?`,
       message += `\n⏳ Your application is being reviewed by our team. You will be notified once a decision is made.`;
     } else if (user.approvalStatus === "approved") {
       message += `\n✅ Congratulations! Your application has been approved.\n\nWelcome to Incurify! 🚀`;
+      
+      // Show join button if user has invite link
+      if (user.inviteLink) {
+        return sendMessage(chatId, message, {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "🚀 Join Incurify", url: user.inviteLink }],
+              [{ text: "🏠 Main Menu", callback_data: "cmd_start" }]
+            ]
+          }
+        });
+      }
     } else if (user.approvalStatus === "rejected") {
       message += `\n\n<b>Reason:</b> ${user.rejectionReason || "Not specified"}`;
       message += `\n\nYou can update your information and resubmit using /updateinfo`;
@@ -375,7 +383,7 @@ Please describe your issue or question in detail. Our team will respond as soon 
 // END OF PART 1
 
 // ============================================
-// PART 2 OF 4 - ADMIN COMMANDS
+// PART 2 OF 4 - ADMIN COMMANDS (NO WALLET)
 // ============================================
 
   /* /setgrouplink */
@@ -409,6 +417,9 @@ Please describe your issue or question in detail. Our team will respond as soon 
 
 🔗 <b>Telegram Group Link:</b>
 ${settings?.groupLink || "Not set"}
+
+🆔 <b>Group Chat ID:</b>
+${process.env.GROUP_CHAT_ID || "Not set"}
 
 📅 <b>Last Updated:</b> ${settings?.updatedAt ? new Date(settings.updatedAt).toLocaleString() : "Never"}`,
       {
@@ -550,8 +561,6 @@ ${settings?.groupLink || "Not set"}
       message += `   👤 Username: ${u.username ? "@" + u.username : "—"}\n`;
       message += `   📱 X: ${u.xHandle || "—"}\n`;
       message += `   💬 Discord: ${u.discord || "—"}\n`;
-      message += `   🔗 Chain: ${u.chain || "—"}\n`;
-      message += `   💼 Wallet: ${u.wallet ? `<code>${u.wallet.slice(0, 6)}...${u.wallet.slice(-4)}</code>` : "—"}\n`;
       message += `   📅 Registered: ${new Date(u.registeredAt).toLocaleDateString()}\n\n`;
     });
 
@@ -595,16 +604,15 @@ ${settings?.groupLink || "Not set"}
 • Username: ${u.username ? "@" + u.username : "—"}
 • Telegram ID: <code>${u.telegramId}</code>
 
-<b>Social & Wallet:</b>
+<b>Social:</b>
 • X Profile: ${u.xHandle || "—"}
 • Discord: ${u.discord || "—"}
-• Blockchain: ${u.chain || "—"}
-• Wallet: ${u.wallet ? `<code>${u.wallet}</code>` : "—"}
 
 <b>Status:</b>
 • Approval: ${statusEmoji[u.approvalStatus || "none"]} ${u.approvalStatus || "none"}
 ${u.rejectionReason ? `• Rejection Reason: ${u.rejectionReason}` : ""}
 • Submissions: ${u.submissionCount || 0}
+${u.inviteLink ? `• Invite Link: ${u.inviteLink}` : ""}
 
 <b>Activity:</b>
 • Registered: ${new Date(u.registeredAt).toLocaleString()}
@@ -653,8 +661,6 @@ What would you like to modify?`,
           inline_keyboard: [
             [{ text: "📱 X Profile", callback_data: `modify_x_${u.telegramId}` }],
             [{ text: "💬 Discord", callback_data: `modify_discord_${u.telegramId}` }],
-            [{ text: "🔗 Chain", callback_data: `modify_chain_${u.telegramId}` }],
-            [{ text: "💼 Wallet", callback_data: `modify_wallet_${u.telegramId}` }],
             [{ text: "❌ Cancel", callback_data: "cancel_admin" }]
           ]
         }
@@ -703,7 +709,7 @@ This action cannot be undone!`,
 // END OF PART 2
 
 // ============================================
-// PART 3 OF 4 - STATE HANDLERS
+// PART 3 OF 4 - STATE HANDLERS (NO WALLET)
 // ============================================
 
 /* STATE FLOW */
@@ -744,49 +750,9 @@ async function handleState(state, text, chatId, from) {
   if (state.step === "ASK_DISCORD") {
     const discord = text.toLowerCase() === "na" ? "N/A" : text;
     await updateUser(from.id, { discord, updatedAt: new Date() });
-    await setState(from.id, { step: "ASK_CHAIN" });
-
-    return sendMessage(chatId, "🔗 <b>Select your wallet chain:</b>", {
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: "EVM", callback_data: "chain_EVM" },
-            { text: "ERC20", callback_data: "chain_ERC20" }
-          ],
-          [
-            { text: "SOL", callback_data: "chain_SOL" },
-            { text: "BNB", callback_data: "chain_BNB" }
-          ],
-          [{ text: "⏭️ Skip Wallet", callback_data: "skip_wallet" }]
-        ]
-      }
-    });
-  }
-
-  if (state.step === "ASK_WALLET") {
-    if (!validateWallet(state.chain, text)) {
-      return sendMessage(
-        chatId,
-        `❌ <b>Invalid ${state.chain} wallet address.</b>\n\nPlease send a valid wallet address:`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: "❌ Cancel", callback_data: "cancel" }]
-            ]
-          }
-        }
-      );
-    }
-
-    await updateUser(from.id, {
-      chain: state.chain,
-      wallet: text,
-      updatedAt: new Date()
-    });
-
     await clearState(from.id);
-    
-    // Show confirmation step
+
+    // Show confirmation step (NO WALLET)
     const user = await getUser(from.id);
     
     return sendMessage(
@@ -797,8 +763,6 @@ async function handleState(state, text, chatId, from) {
 🆔 <b>Username:</b> @${user.username || "—"}
 📱 <b>X Profile:</b> ${user.xHandle || "—"}
 💬 <b>Discord:</b> ${user.discord || "—"}
-🔗 <b>Chain:</b> ${user.chain || "—"}
-💼 <b>Wallet:</b> ${user.wallet ? `<code>${user.wallet}</code>` : "—"}
 
 Is this information correct?`,
       {
@@ -849,39 +813,6 @@ Is this information correct?`,
     return sendMessage(
       chatId,
       `✅ <b>Discord username updated!</b>\n\nNew Discord: ${discord}`,
-      {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: "👤 View My Info", callback_data: "cmd_getinfo" }],
-            [{ text: "🏠 Main Menu", callback_data: "cmd_start" }]
-          ]
-        }
-      }
-    );
-  }
-
-  if (state.step === "UPDATE_WALLET") {
-    if (!validateWallet(state.chain, text)) {
-      return sendMessage(
-        chatId,
-        `❌ <b>Invalid ${state.chain} wallet address.</b>\n\nPlease send a valid wallet address:`
-      );
-    }
-
-    await updateUser(from.id, {
-      chain: state.chain,
-      wallet: text,
-      updatedAt: new Date()
-    });
-
-    await clearState(from.id);
-    
-    return sendMessage(
-      chatId,
-      `✅ <b>Wallet updated successfully!</b>
-
-Chain: ${state.chain}
-Wallet: <code>${text}</code>`,
       {
         reply_markup: {
           inline_keyboard: [
@@ -1158,31 +1089,6 @@ You can update your information and resubmit using /updateinfo`
     );
   }
 
-  if (state.step === "ADMIN_MODIFY_WALLET") {
-    if (!validateWallet(state.chain, text)) {
-      return sendMessage(chatId, `❌ Invalid ${state.chain} wallet. Try again:`);
-    }
-
-    await updateUser(state.targetUserId, {
-      chain: state.chain,
-      wallet: text,
-      updatedAt: new Date()
-    });
-    await clearState(from.id);
-    
-    return sendMessage(
-      chatId,
-      `✅ <b>Wallet updated for ${state.targetUsername}!</b>\n\nChain: ${state.chain}\nWallet: <code>${text}</code>`,
-      {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: "🔙 Back to Admin", callback_data: "cmd_listcmds" }]
-          ]
-        }
-      }
-    );
-  }
-
   if (state.step === "ADMIN_UPDATE_LINK") {
     if (!text.includes("t.me/")) {
       return sendMessage(chatId, "❌ Invalid Telegram link. Please provide a valid t.me link.");
@@ -1208,7 +1114,7 @@ You can update your information and resubmit using /updateinfo`
 // END OF PART 3
 
 // ============================================
-// PART 4 OF 4 - CALLBACK HANDLERS (FINAL)
+// PART 4 OF 4 - CALLBACKS WITH UNIQUE INVITE LINKS (FINAL)
 // ============================================
 
 /* CALLBACK QUERY HANDLER */
@@ -1232,9 +1138,7 @@ export async function handleCallback(callbackQuery) {
     // Track submission history
     await trackSubmissionHistory(from.id, {
       xHandle: user.xHandle,
-      discord: user.discord,
-      chain: user.chain,
-      wallet: user.wallet
+      discord: user.discord
     });
     
     await updateUser(from.id, {
@@ -1266,8 +1170,6 @@ export async function handleCallback(callbackQuery) {
 <b>Details:</b>
 📱 X Profile: ${updatedUser.xHandle || "—"}
 💬 Discord: ${updatedUser.discord || "—"}
-🔗 Chain: ${updatedUser.chain || "—"}
-💼 Wallet: ${updatedUser.wallet ? `<code>${updatedUser.wallet}</code>` : "—"}
 
 📅 Submitted: ${new Date().toLocaleString()}`,
           {
@@ -1319,7 +1221,6 @@ What would you like to edit?`,
           inline_keyboard: [
             [{ text: "📱 X Profile", callback_data: "update_x" }],
             [{ text: "💬 Discord", callback_data: "update_discord" }],
-            [{ text: "🔗 Wallet", callback_data: "update_wallet" }],
             [{ text: "🔄 Start Over", callback_data: "cmd_recordinfo" }],
             [{ text: "❌ Cancel", callback_data: "cancel" }]
           ]
@@ -1363,8 +1264,6 @@ What would you like to edit?`,
 <b>Submitted Details:</b>
 📱 X Profile: ${user.xHandle || "—"}
 💬 Discord: ${user.discord || "—"}
-🔗 Chain: ${user.chain || "—"}
-💼 Wallet: ${user.wallet ? `<code>${user.wallet}</code>` : "—"}
 
 <b>Status:</b> ${statusEmoji[user.approvalStatus || "none"]} ${user.approvalStatus || "none"}
 <b>Submissions:</b> ${user.submissionCount || 0}
@@ -1394,21 +1293,38 @@ What would you like to edit?`,
       return sendMessage(chatId, "❌ User not found.");
     }
 
+    // Create unique invite link (1 use only)
+    const inviteLink = await createUniqueInviteLink(userId, user.firstName);
+
+    if (!inviteLink) {
+      return sendMessage(chatId, "❌ Failed to create invite link. Make sure GROUP_CHAT_ID is set and bot is admin in the group with 'Invite users via link' permission.");
+    }
+
     await updateUser(userId, {
       approvalStatus: "approved",
       approvedBy: from.id,
-      approvedAt: new Date()
+      approvedAt: new Date(),
+      inviteLink: inviteLink
     });
 
-    // Notify user - NO GROUP LINK
+    // Notify user WITH unique invite link
     try {
       await sendMessage(
         userId,
-        `<b>🎉 Application Approved!</b>
+        `<b>✅ Registration Complete!</b>
 
-Congratulations! Your application to join Incurify has been approved.
+Congratulations! Your application has been approved.
 
-Welcome to Incurify! 🚀`
+You can now join our exclusive Telegram group by clicking the button below.
+
+Welcome to Incurify! 🚀`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "🚀 Join Incurify", url: inviteLink }]
+            ]
+          }
+        }
       );
     } catch {}
 
@@ -1418,7 +1334,10 @@ Welcome to Incurify! 🚀`
 
 User: ${user.firstName} ${user.username ? `(@${user.username})` : ""}
 Status: Approved
-User has been notified.`,
+Unique invite link created and sent to user.
+
+<b>Link:</b> ${inviteLink}
+<i>(This link works only once)</i>`,
       {
         reply_markup: {
           inline_keyboard: [
@@ -1475,66 +1394,6 @@ Please provide a reason for rejection. This will be sent to the user.`
   if (data === "update_discord") {
     await setState(from.id, { step: "UPDATE_DISCORD" });
     return sendMessage(chatId, "💬 Send your new Discord username (or NA if none):");
-  }
-
-  if (data === "update_wallet") {
-    await setState(from.id, { step: "ASK_CHAIN" });
-    return sendMessage(chatId, "🔗 <b>Select your wallet chain:</b>", {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "EVM", callback_data: "chain_EVM" }, { text: "ERC20", callback_data: "chain_ERC20" }],
-          [{ text: "SOL", callback_data: "chain_SOL" }, { text: "BNB", callback_data: "chain_BNB" }],
-          [{ text: "❌ Cancel", callback_data: "cancel" }]
-        ]
-      }
-    });
-  }
-
-  /* Chain selection */
-  if (data.startsWith("chain_")) {
-    const chain = data.replace("chain_", "");
-    const state = await getState(from.id);
-    
-    if (state?.step === "ASK_CHAIN") {
-      await setState(from.id, { step: "ASK_WALLET", chain });
-      return sendMessage(chatId, `💼 Send your <b>${chain}</b> wallet address:`);
-    }
-    
-    if (state?.step === "UPDATE_WALLET") {
-      await setState(from.id, { step: "UPDATE_WALLET", chain });
-      return sendMessage(chatId, `💼 Send your new <b>${chain}</b> wallet address:`);
-    }
-  }
-
-  /* Skip wallet */
-  if (data === "skip_wallet") {
-    await clearState(from.id);
-    
-    // Show confirmation without wallet
-    const user = await getUser(from.id);
-    
-    return sendMessage(
-      chatId,
-      `<b>📋 Please Confirm Your Information</b>
-
-👤 <b>Name:</b> ${user.firstName} ${user.lastName || ""}
-🆔 <b>Username:</b> @${user.username || "—"}
-📱 <b>X Profile:</b> ${user.xHandle || "—"}
-💬 <b>Discord:</b> ${user.discord || "—"}
-🔗 <b>Wallet:</b> Not provided
-
-Is this information correct?`,
-      {
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: "✅ Submit", callback_data: "confirm_submit" },
-              { text: "✏️ Edit", callback_data: "confirm_edit" }
-            ]
-          ]
-        }
-      }
-    );
   }
 
   /* Ticket System - User */
@@ -1631,7 +1490,6 @@ Please describe your issue or question in detail.`,
   if (data === "admin_stats") {
     const users = await getAllUsers();
     const pending = await getPendingUsers();
-    const withWallet = users.filter(u => u.wallet).length;
     const withX = users.filter(u => u.xHandle).length;
     const withDiscord = users.filter(u => u.discord && u.discord !== "N/A").length;
     const approved = users.filter(u => u.approvalStatus === "approved").length;
@@ -1648,7 +1506,6 @@ Please describe your issue or question in detail.`,
 ❌ Rejected: ${rejected}
 
 <b>Data Completion:</b>
-💼 With Wallet: ${withWallet}
 📱 With X Profile: ${withX}
 💬 With Discord: ${withDiscord}
 
@@ -1671,7 +1528,7 @@ Please describe your issue or question in detail.`,
     return sendMessage(chatId, "🔗 Send the new Telegram group link:");
   }
 
-  /* Admin Ticket Management */
+  /* Admin Ticket Management - Continue with existing ticket code from previous version */
   if (data.startsWith("admin_view_ticket_")) {
     const ticketId = data.replace("admin_view_ticket_", "");
     const ticket = await getTicket(ticketId);
@@ -1811,62 +1668,6 @@ If you need further assistance, feel free to create a new ticket.`,
     });
 
     return sendMessage(chatId, `💬 Send new Discord username for <b>${user.username || user.firstName}</b>:`);
-  }
-
-  if (data.startsWith("modify_chain_")) {
-    const userId = Number(data.replace("modify_chain_", ""));
-    const user = await getUser(userId);
-    
-    await setState(from.id, {
-      step: "ADMIN_MODIFY_CHAIN",
-      targetUserId: userId,
-      targetUsername: user.username || user.firstName
-    });
-
-    return sendMessage(chatId, "🔗 Select new chain:", {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "EVM", callback_data: `admin_chain_EVM_${userId}` }, { text: "ERC20", callback_data: `admin_chain_ERC20_${userId}` }],
-          [{ text: "SOL", callback_data: `admin_chain_SOL_${userId}` }, { text: "BNB", callback_data: `admin_chain_BNB_${userId}` }]
-        ]
-      }
-    });
-  }
-
-  if (data.startsWith("admin_chain_")) {
-    const parts = data.replace("admin_chain_", "").split("_");
-    const chain = parts[0];
-    const userId = Number(parts[1]);
-    const user = await getUser(userId);
-
-    await setState(from.id, {
-      step: "ADMIN_MODIFY_WALLET",
-      chain,
-      targetUserId: userId,
-      targetUsername: user.username || user.firstName
-    });
-
-    return sendMessage(chatId, `💼 Send new <b>${chain}</b> wallet address for ${user.username || user.firstName}:`);
-  }
-
-  if (data.startsWith("modify_wallet_")) {
-    const userId = Number(data.replace("modify_wallet_", ""));
-    const user = await getUser(userId);
-    
-    await setState(from.id, {
-      step: "ADMIN_MODIFY_CHAIN",
-      targetUserId: userId,
-      targetUsername: user.username || user.firstName
-    });
-
-    return sendMessage(chatId, "🔗 Select chain:", {
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "EVM", callback_data: `admin_chain_EVM_${userId}` }, { text: "ERC20", callback_data: `admin_chain_ERC20_${userId}` }],
-          [{ text: "SOL", callback_data: `admin_chain_SOL_${userId}` }, { text: "BNB", callback_data: `admin_chain_BNB_${userId}` }]
-        ]
-      }
-    });
   }
 
   /* Delete confirmation */
