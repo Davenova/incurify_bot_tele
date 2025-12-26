@@ -95,10 +95,9 @@ export function validateWallet(chain, address) {
   return false;
 }
 
-/* Google Sheets Integration */
-export async function addToGoogleSheet(userData) {
+/* Google Sheets Integration - Update or Create */
+export async function updateGoogleSheet(userData) {
   try {
-    // Google Sheets API endpoint
     const SHEET_URL = process.env.GOOGLE_SHEET_WEBHOOK_URL;
     
     if (!SHEET_URL) {
@@ -114,12 +113,13 @@ export async function addToGoogleSheet(userData) {
       chain: userData.chain || "N/A",
       walletAddress: userData.wallet || "N/A",
       registrationDate: new Date(userData.registeredAt).toLocaleString(),
-      status: userData.approvalStatus || "pending"
+      status: userData.approvalStatus || "pending",
+      submissionCount: userData.submissionCount || 1
     };
 
     await axios.post(SHEET_URL, data);
-    console.log("Data added to Google Sheets successfully");
+    console.log("Google Sheets updated successfully");
   } catch (error) {
-    console.error("Error adding to Google Sheets:", error.message);
+    console.error("Error updating Google Sheets:", error.message);
   }
 }
