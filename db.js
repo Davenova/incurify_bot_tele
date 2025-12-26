@@ -22,9 +22,7 @@ export async function saveUserBasic(user) {
         approvalStatus: "none",
         submissionCount: 0,
         xHandleHistory: [],
-        discordHistory: [],
-        chainHistory: [],
-        walletHistory: []
+        discordHistory: []
       } 
     },
     { upsert: true }
@@ -108,24 +106,6 @@ export async function trackSubmissionHistory(telegramId, newData) {
     if (!discordHistory.includes(newData.discord)) {
       discordHistory.push(newData.discord);
       updates.discordHistory = discordHistory;
-    }
-  }
-  
-  // Track Chain changes
-  if (newData.chain && newData.chain !== user.chain) {
-    const chainHistory = user.chainHistory || [];
-    if (!chainHistory.includes(newData.chain)) {
-      chainHistory.push(newData.chain);
-      updates.chainHistory = chainHistory;
-    }
-  }
-  
-  // Track Wallet changes
-  if (newData.wallet && newData.wallet !== user.wallet) {
-    const walletHistory = user.walletHistory || [];
-    if (!walletHistory.includes(newData.wallet)) {
-      walletHistory.push(newData.wallet);
-      updates.walletHistory = walletHistory;
     }
   }
   
