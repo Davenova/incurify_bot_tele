@@ -75,24 +75,48 @@ export function normalizeXProfile(url) {
   return url;
 }
 
-/* Wallet validation */
-export function validateWallet(chain, address) {
-  if (!address) return false;
+/* Create unique invite link for user - 1 use only */
+export async function createUniqueInviteLink(userId, userName) {
+  try {
+    const groupChatId = process.env.GROUP_CHAT_ID; // Your group chat ID
+    
+    if (!groupChatId) {
+      console.error("GROUP_CHAT_ID not set in environment variables");
+      return null;
+    }
 
-  // Remove whitespace
-  address = address.trim();
+    const response = await axios.post(`${API}/createChatInviteLink`, {
+      chat_id: groupChatId,
+      name: `Invite for ${userName}`,
+      member_limit: 1, // Only 1 user can join with this link
+      creates_join_request: false // Direct join without approval
+    });
 
-  // EVM-compatible chains (Ethereum, ERC20, BNB)
-  if (["EVM", "ERC20", "BNB"].includes(chain)) {
-    return /^0x[a-fA-F0-9]{40}$/.test(address);
+    return response.data.result.invite_link;
+  } catch (error) {
+    console.error("Error creating invite link:", error.response?.data || error.message);
+    return null;
   }
+}
 
-  // Solana
-  if (chain === "SOL") {
-    return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
+/* Revoke invite link */
+export async function revokeInviteLink(inviteLink) {
+  try {
+    const groupChatId = process.env.GROUP_CHAT_ID;
+    
+    if (!groupChatId) {
+      return;
+    }
+
+    await axios.post(`${API}/revokeChatInviteLink`, {
+      chat_id: groupChatId,
+      invite_link: inviteLink
+    });
+    
+    console.log("Invite link revoked successfully");
+  } catch (error) {
+    console.error("Error revoking invite link:", error.message);
   }
-
-  return false;
 }
 
 /* Google Sheets Integration - Update or Create */
@@ -110,8 +134,6 @@ export async function updateGoogleSheet(userData) {
       telegramId: userData.telegramId,
       xProfile: userData.xHandle || "N/A",
       discord: userData.discord || "N/A",
-      chain: userData.chain || "N/A",
-      walletAddress: userData.wallet || "N/A",
       registrationDate: new Date(userData.registeredAt).toLocaleString(),
       status: userData.approvalStatus || "pending",
       submissionCount: userData.submissionCount || 1
