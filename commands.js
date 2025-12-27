@@ -8,9 +8,7 @@ import {
   validateXProfile,
   normalizeXProfile,
   editMessage,
-  updateGoogleSheet,
-  createUniqueInviteLink,
-  revokeInviteLink
+  updateGoogleSheet
 } from "./functions.js";
 
 import {
@@ -43,71 +41,91 @@ export async function handleCommand(message) {
   const state = await getState(from.id);
   if (state) return handleState(state, text, chatId, from);
 
-  /* /start */
-  if (text === "/start") {
-    await saveUserBasic({
-      telegramId: from.id,
-      username: from.username || null,
-      firstName: from.first_name || "",
-      lastName: from.last_name || "",
-      registeredAt: new Date()
-    });
+/* /start */
+if (text === "/start") {
+  await saveUserBasic({
+    telegramId: from.id,
+    username: from.username || null,
+    firstName: from.first_name || "",
+    lastName: from.last_name || "",
+    registeredAt: new Date()
+  });
 
+  return sendMessage(
+    chatId,
+    `🎉 <b>Welcome to Incurify, ${from.first_name}!</b>
+
+<i>Your gateway to exclusive creator opportunities and campaigns.</i>
+
+━━━━━━━━━━━━━━━━━━━━
+
+<b>What You Can Do:</b>
+
+📝 <b>Register</b> — Complete your Creator/KOL profile
+👤 <b>My Profile</b> — View your registration details  
+✏️ <b>Update Profile</b> — Modify your information anytime
+🎫 <b>Support</b> — Get help from our team
+
+Ready to get started? Let's build something amazing together! 🚀`,
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "📝 Register Now", callback_data: "cmd_recordinfo" }],
+          [
+            { text: "👤 My Profile", callback_data: "cmd_getinfo" },
+            { text: "✏️ Update Profile", callback_data: "cmd_updateinfo" }
+          ],
+          [{ text: "🎫 Support", callback_data: "ticket_menu" }]
+        ]
+      }
+    }
+  );
+}
+
+/* /recordinfo */
+if (text === "/recordinfo") {
+  const user = await getUser(from.id);
+  
+  // Check if user has pending application
+  if (user && user.approvalStatus === "pending") {
     return sendMessage(
       chatId,
-      `👋 <b>Welcome ${from.first_name}!</b>
-
-Fill out the form to join our group.`,
-      {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: "📝 Form", callback_data: "cmd_recordinfo" }],
-            [{ text: "👤 Get Info", callback_data: "cmd_getinfo" }],
-            [{ text: "✏️ Update Info", callback_data: "cmd_updateinfo" }],
-            [{ text: "🎫 Ticket System", callback_data: "ticket_menu" }]
-          ]
-        }
-      }
-    );
-  }
-
-  /* /recordinfo */
-  if (text === "/recordinfo") {
-    const user = await getUser(from.id);
-    
-    // Check if user has pending application
-    if (user && user.approvalStatus === "pending") {
-      return sendMessage(
-        chatId,
-        `⏳ <b>Application Already Submitted</b>
+      `⏳ <b>Application Already Submitted</b>
 
 Your application is currently pending review. You cannot submit a new application while one is pending.
 
 Use /status to check your application status.`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: "📊 Check Status", callback_data: "check_status" }],
-              [{ text: "🏠 Main Menu", callback_data: "cmd_start" }]
-            ]
-          }
-        }
-      );
-    }
-    
-    await setState(from.id, { step: "ASK_X" });
-    return sendMessage(
-      chatId,
-      "📱 Please send your <b>X (Twitter) profile link</b>\n\nYou can send it as:\n• x.com/username\n• https://x.com/username\n• twitter.com/username",
       {
         reply_markup: {
           inline_keyboard: [
-            [{ text: "❌ Cancel", callback_data: "cancel" }]
+            [{ text: "📊 Check Status", callback_data: "check_status" }],
+            [{ text: "🏠 Main Menu", callback_data: "cmd_start" }]
           ]
         }
       }
     );
   }
+  
+  await setState(from.id, { step: "ASK_X" });
+  return sendMessage(
+    chatId,
+    `📱 <b>Step 1: X (Twitter) Profile</b>
+
+Please send your X profile link in one of these formats:
+
+✅ <code>x.com/username</code>
+✅ <code>https://x.com/username</code>
+
+<i>Example: x.com/elonmusk</i>`,
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "❌ Cancel", callback_data: "cancel" }]
+        ]
+      }
+    }
+  );
+}
 
   /* /updateinfo */
   if (text === "/updateinfo") {
@@ -166,62 +184,68 @@ What would you like to update?`,
   }
 
   /* /status - Check approval status */
-  if (text === "/status") {
-    const user = await getUser(from.id);
-    if (!user) {
-      return sendMessage(chatId, "❌ No data found. Please fill out the Form first.");
-    }
+if (text === "/status") {
+  const user = await getUser(from.id);
+  if (!user) {
+    return sendMessage(chatId, "❌ No data found. Please fill out the registration form first.");
+  }
 
-    const statusEmoji = {
-      "none": "⚪",
-      "pending": "🟡",
-      "approved": "🟢",
-      "rejected": "🔴"
-    };
+  const statusEmoji = {
+    "none": "⚪",
+    "pending": "🟡",
+    "approved": "🟢",
+    "rejected": "🔴"
+  };
 
-    const statusText = {
-      "none": "Not Submitted",
-      "pending": "Pending Review",
-      "approved": "Approved ✅",
-      "rejected": "Rejected"
-    };
+  const statusText = {
+    "none": "Not Submitted",
+    "pending": "Pending Review",
+    "approved": "Approved ✅",
+    "rejected": "Rejected"
+  };
 
-    let message = `<b>📊 Application Status</b>
+  let message = `<b>📊 Application Status</b>
 
 <b>Status:</b> ${statusEmoji[user.approvalStatus || "none"]} ${statusText[user.approvalStatus || "none"]}
 `;
 
-    if (user.approvalStatus === "pending") {
-      message += `\n⏳ Your application is being reviewed by our team. You will be notified once a decision is made.`;
-    } else if (user.approvalStatus === "approved") {
-      message += `\n✅ Congratulations! Your application has been approved.\n\nWelcome to Incurify! 🚀`;
-      
-      // Show join button if user has invite link
-      if (user.inviteLink) {
-        return sendMessage(chatId, message, {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: "🚀 Join Incurify", url: user.inviteLink }],
-              [{ text: "🏠 Main Menu", callback_data: "cmd_start" }]
-            ]
-          }
-        });
-      }
-    } else if (user.approvalStatus === "rejected") {
-      message += `\n\n<b>Reason:</b> ${user.rejectionReason || "Not specified"}`;
-      message += `\n\nYou can update your information and resubmit using /updateinfo`;
-    } else {
-      message += `\n\nℹ️ You haven't submitted your application yet. Please complete the form to apply.`;
-    }
-
+  if (user.approvalStatus === "pending") {
+    message += `\n⏳ Your application is being reviewed by our team. You will be notified once a decision is made.`;
+  } else if (user.approvalStatus === "approved") {
+    message += `\n✅ Congratulations! You're officially registered as a Creator/KOL with Incurify.\n\n👉 Follow us on X: https://x.com/Incurify_Web3`;
+    
     return sendMessage(chatId, message, {
       reply_markup: {
         inline_keyboard: [
+          [{ text: "🐦 Follow on X", url: "https://x.com/Incurify_Web3" }],
+          [{ text: "🏠 Main Menu", callback_data: "cmd_start" }]
+        ]
+      }
+    });
+  } else if (user.approvalStatus === "rejected") {
+    message += `\n\n<b>Reason:</b> ${user.rejectionReason || "Not specified"}`;
+    message += `\n\nYou can update your information and resubmit using /updateinfo`;
+  } else {
+    message += `\n\nℹ️ You haven't submitted your application yet. Click the button below to register.`;
+    
+    return sendMessage(chatId, message, {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "📝 Register Now", callback_data: "cmd_recordinfo" }],
           [{ text: "🏠 Main Menu", callback_data: "cmd_start" }]
         ]
       }
     });
   }
+
+  return sendMessage(chatId, message, {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "🏠 Main Menu", callback_data: "cmd_start" }]
+      ]
+    }
+  });
+}
 
   /* /help */
   if (text === "/help") {
@@ -612,7 +636,6 @@ ${process.env.GROUP_CHAT_ID || "Not set"}
 • Approval: ${statusEmoji[u.approvalStatus || "none"]} ${u.approvalStatus || "none"}
 ${u.rejectionReason ? `• Rejection Reason: ${u.rejectionReason}` : ""}
 • Submissions: ${u.submissionCount || 0}
-${u.inviteLink ? `• Invite Link: ${u.inviteLink}` : ""}
 
 <b>Activity:</b>
 • Registered: ${new Date(u.registeredAt).toLocaleString()}
@@ -1283,72 +1306,63 @@ What would you like to edit?`,
     );
   }
 
-  if (data.startsWith("approve_user_")) {
-    if (!isAdmin(from.id)) return;
+if (data.startsWith("approve_user_")) {
+  if (!isAdmin(from.id)) return;
 
-    const userId = Number(data.replace("approve_user_", ""));
-    const user = await getUser(userId);
+  const userId = Number(data.replace("approve_user_", ""));
+  const user = await getUser(userId);
 
-    if (!user) {
-      return sendMessage(chatId, "❌ User not found.");
-    }
+  if (!user) {
+    return sendMessage(chatId, "❌ User not found.");
+  }
 
-    // Create unique invite link (1 use only)
-    const inviteLink = await createUniqueInviteLink(userId, user.firstName);
+  await updateUser(userId, {
+    approvalStatus: "approved",
+    approvedBy: from.id,
+    approvedAt: new Date()
+  });
 
-    if (!inviteLink) {
-      return sendMessage(chatId, "❌ Failed to create invite link. Make sure GROUP_CHAT_ID is set and bot is admin in the group with 'Invite users via link' permission.");
-    }
+  // Notify user with NEW message (no invite link)
+  try {
+    await sendMessage(
+      userId,
+      `✅ <b>Registration Successful!</b>
 
-    await updateUser(userId, {
-      approvalStatus: "approved",
-      approvedBy: from.id,
-      approvedAt: new Date(),
-      inviteLink: inviteLink
-    });
+You're now officially registered as a Creator/KOL with <b>Incurify</b>.
 
-    // Notify user WITH unique invite link
-    try {
-      await sendMessage(
-        userId,
-        `<b>✅ Registration Complete!</b>
+👉 Follow us on X and stay active in the community to unlock upcoming campaigns and opportunities:
 
-Congratulations! Your application has been approved.
+https://x.com/Incurify_Web3
 
-You can now join our exclusive Telegram group by clicking the button below.
-
-Welcome to Incurify! 🚀`,
-        {
-          reply_markup: {
-            inline_keyboard: [
-              [{ text: "🚀 Join Incurify", url: inviteLink }]
-            ]
-          }
-        }
-      );
-    } catch {}
-
-    return sendMessage(
-      chatId,
-      `✅ <b>User Approved!</b>
-
-User: ${user.firstName} ${user.username ? `(@${user.username})` : ""}
-Status: Approved
-Unique invite link created and sent to user.
-
-<b>Link:</b> ${inviteLink}
-<i>(This link works only once)</i>`,
+More updates coming soon. Stay sharp. 🎯`,
       {
         reply_markup: {
           inline_keyboard: [
-            [{ text: "✅ View Pending", callback_data: "admin_pending" }],
-            [{ text: "🔙 Back", callback_data: "cmd_listcmds" }]
+            [{ text: "🐦 Follow on X", url: "https://x.com/Incurify_Web3" }],
+            [{ text: "👤 View My Profile", callback_data: "cmd_getinfo" }]
           ]
         }
       }
     );
-  }
+  } catch {}
 
+  return sendMessage(
+    chatId,
+    `✅ <b>User Approved!</b>
+
+User: ${user.firstName} ${user.username ? `(@${user.username})` : ""}
+Status: Approved
+Welcome message sent to user.`,
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "✅ View Pending", callback_data: "admin_pending" }],
+          [{ text: "🔙 Back", callback_data: "cmd_listcmds" }]
+        ]
+      }
+    }
+  );
+}
   if (data.startsWith("reject_user_")) {
     if (!isAdmin(from.id)) return;
 
