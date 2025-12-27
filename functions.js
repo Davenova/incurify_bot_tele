@@ -47,16 +47,16 @@ export function isAdmin(userId) {
   return adminIds.includes(String(userId));
 }
 
-/* X/Twitter Profile Validation - Accept both formats */
+/* X/Twitter Profile Validation - Accept x.com and https://x.com only */
 export function validateXProfile(url) {
   if (!url) return false;
   
   // Remove whitespace
   url = url.trim();
   
-  // Accept both x.com/username and https://x.com/username formats
-  const xPatternWithProtocol = /^https?:\/\/(www\.)?(twitter\.com|x\.com)\/[a-zA-Z0-9_]+\/?$/;
-  const xPatternWithoutProtocol = /^(www\.)?(twitter\.com|x\.com)\/[a-zA-Z0-9_]+\/?$/;
+  // Accept x.com/username and https://x.com/username formats (NO twitter.com)
+  const xPatternWithProtocol = /^https?:\/\/(www\.)?x\.com\/[a-zA-Z0-9_]+\/?$/;
+  const xPatternWithoutProtocol = /^(www\.)?x\.com\/[a-zA-Z0-9_]+\/?$/;
   
   return xPatternWithProtocol.test(url) || xPatternWithoutProtocol.test(url);
 }
@@ -73,50 +73,6 @@ export function normalizeXProfile(url) {
   }
   
   return url;
-}
-
-/* Create unique invite link for user - 1 use only */
-export async function createUniqueInviteLink(userId, userName) {
-  try {
-    const groupChatId = process.env.GROUP_CHAT_ID; // Your group chat ID
-    
-    if (!groupChatId) {
-      console.error("GROUP_CHAT_ID not set in environment variables");
-      return null;
-    }
-
-    const response = await axios.post(`${API}/createChatInviteLink`, {
-      chat_id: groupChatId,
-      name: `Invite for ${userName}`,
-      member_limit: 1, // Only 1 user can join with this link
-      creates_join_request: false // Direct join without approval
-    });
-
-    return response.data.result.invite_link;
-  } catch (error) {
-    console.error("Error creating invite link:", error.response?.data || error.message);
-    return null;
-  }
-}
-
-/* Revoke invite link */
-export async function revokeInviteLink(inviteLink) {
-  try {
-    const groupChatId = process.env.GROUP_CHAT_ID;
-    
-    if (!groupChatId) {
-      return;
-    }
-
-    await axios.post(`${API}/revokeChatInviteLink`, {
-      chat_id: groupChatId,
-      invite_link: inviteLink
-    });
-    
-    console.log("Invite link revoked successfully");
-  } catch (error) {
-    console.error("Error revoking invite link:", error.message);
-  }
 }
 
 /* Google Sheets Integration - Update or Create */
